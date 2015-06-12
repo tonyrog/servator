@@ -1,0 +1,11 @@
+{application, servator,
+ [
+  {description, "Create erlang server"},
+  {vsn, git},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
