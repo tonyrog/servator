@@ -128,7 +128,7 @@ install_script() ->
 make_executable(File) ->
     case file:read_file_info(File) of
 	{ok, Info} ->
-	    Info2 = Info#file_info { mode = Info#file_info.mode bor 16#111 },
+	    Info2 = Info#file_info { mode = Info#file_info.mode bor 8#111 },
 	    file:write_file_info(File, Info2);
 	Error ->
 	    Error
