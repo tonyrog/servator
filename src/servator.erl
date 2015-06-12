@@ -325,7 +325,7 @@ shell_stop_command(AppName) ->
 %% Generate the attach command
 shell_attach_command(AppName) ->
     User = os:getenv("USER"),
-    Attach = erl_args(AppName, attach,  " -noinput"),
+    Attach = erl_args(AppName, attach,  ""),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
