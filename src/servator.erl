@@ -15,8 +15,14 @@
 -define(ETC, ["etc", "erlang"]).
 -define(VAR, ["var", "erlang"]).
 
-make_linux_script(AppName0) ->
+make(AppName0) ->
     AppName = to_string(AppName0),
+    make_scripts(AppName),
+    make_osx_plist(AppName),
+    ok.
+    
+
+make_scripts(AppName) ->
     Etc = filename:join(?ETC ++ [AppName]),
     Var = filename:join(?VAR ++ [AppName]),
     ok = make_dir(Etc),
@@ -48,9 +54,72 @@ make_linux_script(AppName0) ->
     ok = file:write_file(Run, list_to_binary(Script3)),
     ok = make_executable(Run).
 
-%% Make script nescessary for running on mac
-make_osx_script() ->
+%% Make the serv plist to use with mac os, replace the start/stop
+%% sudo launchctl load /etc/erlang/<app>/<app>.plist 
+%% sudo launchctl unload /etc/erlang/<app>/<app>.plist 
+
+make_osx_plist(AppName) ->
+    Script1 = osx_plist(AppName),
+    Script2 = nl(Script1),
+    Script3 = flat(Script2),
+    FileName = "org.erlang."++to_string(AppName)++".plist",
+    PList = filename:join(?ETC++[AppName,FileName]),
+    ok = file:write_file(PList, list_to_binary(Script3)),
+    io:format("wrote file: ~s\n", [PList]),
     ok.
+
+%% OSX:
+%%   cp /etc/erlang/<app>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
+%%   sudo launchctl bootstrap system /System/Library/LaunchDaemons/org.erlang.<app>.plist
+%%   sudo launchctl kickstart system/org.erlang.<app>.plist
+%%   sudo launchctl enable system/org.erlang.<app>.plist
+%%
+osx_plist(AppName) ->
+    Args = init:get_arguments(),
+    Name = proplists:get_value(progname, Args, "erl"),
+    Executable = os:find_executable(Name),
+    ArgsFilePath = filename:join(["/"|?ETC]++
+				     [AppName,to_string(start)++".args"]),
+    HomeDir = filename:join(["/"|?VAR]++[AppName]),
+    User = os:getenv("USER"),
+
+    {script,
+     [
+      {r, ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>"]},
+      {r, ["<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\""]},
+      {r, ["  \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"]},
+      {r, ["<plist version=\"1.0\">"]},
+      {r, [?TAB,"<dict>"]},
+      {r, [?TAB,?TAB,"<key>Label</key>"]},
+      {r, [?TAB,?TAB,"<string>org.erlang.",AppName,"</string>"]},
+      {r, [?TAB,?TAB,"<key>EnvironmentVariables</key>"]},
+      {r, [?TAB,?TAB,"<dict>"]},
+      {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
+      {r, [?TAB,?TAB,?TAB,"<string>",HomeDir,"</string>"]},
+%%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
+%%    {r, [?TAB,?TAB,?TAB,"<string>/opt/local/lib:</string>"]},
+      {r, [?TAB,?TAB,"</dict>"]},
+      {r, [?TAB,?TAB,"<key>ProgramArguments</key>"]},
+      {r, [?TAB,?TAB,"<array>"]},
+      {r, [?TAB,?TAB,"<string>", Executable, "</string>"]},
+      {r, [?TAB,?TAB,"<string>-noinput</string>"]},
+      {r, [?TAB,?TAB,"<string>-args_file</string>"]},
+      {r, [?TAB,?TAB,"<string>",ArgsFilePath,"</string>"]},
+      {r, [?TAB,?TAB,"</array>"]},
+      {r, [?TAB,?TAB,"<key>UserName</key>"]},
+      {r, [?TAB,?TAB,"<string>", User, "</string>"]},
+      {r, [?TAB,?TAB,"<key>StandardOutPath</key>"]},
+      {r, [?TAB,?TAB,"<string>/dev/null</string>"]},
+      {r, [?TAB,?TAB,"<key>StandardErrorPath</key>"]},
+      {r, [?TAB,?TAB,"<string>/dev/null</string>"]},
+      {r, [?TAB,?TAB,"<key>RunAtLoad</key>"]},
+      {r, [?TAB,?TAB,"<true/>"]},
+      {r, [?TAB,?TAB,"<key>KeepAlive</key>"]},
+      {r, [?TAB,?TAB,"<true/>"]},
+      {r, [?TAB,"</dict>"]},
+      {r, ["</plist>"]}
+     ]}.
+
 
 %% Install 
 install_script() ->
@@ -59,7 +128,7 @@ install_script() ->
 make_executable(File) ->
     case file:read_file_info(File) of
 	{ok, Info} ->
-	    Info2 = Info#file_info.mode bor 16#111,
+	    Info2 = Info#file_info { mode = Info#file_info.mode bor 16#111 },
 	    file:write_file_info(File, Info2);
 	Error ->
 	    Error
@@ -116,16 +185,16 @@ erl_config_arg(AppName) ->
     case proplists:get_value(config, Args) of
 	undefined -> [];
 	Config ->
-	    ConfigPath = filename:join(["/"|?ETC]++[AppName, Config]),
+	    ConfigPath = filename:join(?ETC++[AppName, Config]),
 	    %% How is the config file located? 
 	    case file:read_file(Config) of
 		{ok,Bin} ->
 		    ok = file:write_file(ConfigPath, Bin),
 		    io:format("copied file: ~s to ~s\n", [Config, ConfigPath]),
-		    [{"config", ConfigPath}];
+		    [{"config", filename:join("/", ConfigPath)}];
 		Error ->
 		    io:format("error copy file: ~s : ~p\n", [Config, Error]),
-		    [{"config", ConfigPath}]
+		    [{"config", filename:join("/", ConfigPath)}]
 	    end
     end.
 
@@ -135,14 +204,6 @@ erl_path_arg() ->
     Applications = get_started_applications(),
     Paths = get_paths(Applications),
     [ {"pa",P} || P <- Paths].
-
-%%
-%% Foreground daemon: [{"noinput", ""}]
-%% Background daemon: [{"detached", ""}]
-%% Interactve: []
-%%
-erl_background_arg() ->
-    [{"detached", ""}].
 
 erl_foreground_arg() ->
     [{"noinput", ""}].
@@ -188,7 +249,6 @@ make_args(start, AppName) ->
 	erl_cookie_arg() ++
 	erl_config_arg(AppName) ++
 	erl_path_arg() ++
-	erl_background_arg() ++
 	erl_env_arg() ++
 	erl_heart_arg() ++
 	erl_smp_arg() ++
@@ -296,7 +356,8 @@ erl_args(AppName, Type) ->
     ArgsFilePath = ?ETC++[AppName,to_string(Type)++".args"],
     ArgsFileName = filename:join(ArgsFilePath),
     emit_args_file(ArgsFileName, make_args(Type, AppName)),
-    Executable ++ " -args_file " ++ filename:join(["/" | ArgsFilePath]).
+    Executable ++ " -detached "++ " -args_file " ++ 
+	filename:join(["/" | ArgsFilePath]).
 
 %%
 %% Combine script, newline and tabs
