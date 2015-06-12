@@ -358,7 +358,7 @@ get_started_applications() ->
 
 filter_applications(As) ->
     %% FIXME: check if fnotify was started from .erlang!
-    As -- [fnotify,error_emacs].
+    As -- [servator,fnotify,error_emacs].
 
 %% List all applications found in the OTP release
 system_applications() ->
