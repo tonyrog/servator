@@ -7,7 +7,6 @@
 
 -include_lib("kernel/include/file.hrl").
 
-
 -define(Q, $").
 -define(NL, "\n").
 -define(TAB,  "  ").
@@ -15,13 +14,25 @@
 -define(ETC, ["etc", "erlang"]).
 -define(VAR, ["var", "erlang"]).
 
+%% Nice to set environment variables
+%% ERL_CRASH_DUMP=/dev/null
+%% Others found in runtime system:
+%% ERL_CRASH_DUMP_SECONDS
+%% ERL_CRASH_DUMP_NICE
+%% ERL_NO_VFORK
+%% ERL_NO_KERNEL_POLL
+%% ERL_THREAD_POOL_SIZE
+%% ERL_MAX_ETS_TABLES_ENV
+%% ERL_FULLSWEEP_AFTER
+%% ERL_MAX_PORTS
+%%
+
 make(AppName0) ->
     AppName = to_string(AppName0),
     make_scripts(AppName),
     make_osx_plist(AppName),
     ok.
     
-
 make_scripts(AppName) ->
     Etc = filename:join(?ETC ++ [AppName]),
     Var = filename:join(?VAR ++ [AppName]),
@@ -96,6 +107,8 @@ osx_plist(AppName) ->
       {r, [?TAB,?TAB,"<dict>"]},
       {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
       {r, [?TAB,?TAB,?TAB,"<string>",HomeDir,"</string>"]},
+      {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP</key>"]},
+      {r, [?TAB,?TAB,?TAB,"<string>/dev/null</string>"]},
 %%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
 %%    {r, [?TAB,?TAB,?TAB,"<string>/opt/local/lib:</string>"]},
       {r, [?TAB,?TAB,"</dict>"]},
@@ -116,6 +129,8 @@ osx_plist(AppName) ->
       {r, [?TAB,?TAB,"<true/>"]},
       {r, [?TAB,?TAB,"<key>KeepAlive</key>"]},
       {r, [?TAB,?TAB,"<true/>"]},
+      {r, [?TAB,?TAB,"<key>WorkingDirectory</key>"]},
+      {r, [?TAB,?TAB,"<string>", HomeDir, "</string>"]},
       {r, [?TAB,"</dict>"]},
       {r, ["</plist>"]}
      ]}.
@@ -155,19 +170,16 @@ erl_node_arg() ->
 	    end
     end.
 
-erl_node_arg(OtherName) ->
+client_node_arg() ->
     case string_split(atom_to_list(node()), $@) of
-	["nonode", "nohost"] -> [];
+	["nonode", "nohost"] -> " -sname client_$$";
 	[_Name,Host] ->
 	    case string_split(Host, $.) of
-		[_] -> [{"sname",OtherName}];
-		[_|_] -> [{"name",OtherName}]
+		[_] -> " -sname client_$$";
+		[_|_] -> " -name client_$$"
 	    end
     end.
-
-erl_client_name() ->
-    erl_node_arg("client-"++os:getpid()).
-
+    
 %% -setcookie cookie
 erl_cookie_arg() ->
     case erlang:get_cookie() of
@@ -230,12 +242,6 @@ erl_attach_arg(_AppName) ->
     [{"remsh", NodeName}].
 
 %%
-%% Environment variables
-%%
-erl_env_arg() ->
-    [{"env", "ERL_CRASH_DUMP /dev/null"}].
-
-%%
 %% Heart commands
 %% FIXME: set environment and setup heart
 erl_heart_arg() ->
@@ -246,26 +252,19 @@ make_args(start, AppName) ->
 	erl_cookie_arg() ++
 	erl_config_arg(AppName) ++
 	erl_path_arg() ++
-	erl_env_arg() ++
 	erl_heart_arg() ++
 	erl_smp_arg() ++
 	erl_start_arg(AppName);
 make_args(stop, AppName) ->
-    erl_client_name() ++
 	erl_cookie_arg() ++
-	erl_env_arg() ++
 	erl_hidden_arg() ++
 	erl_stop_arg(AppName);
 make_args(status, AppName) ->
-    erl_client_name() ++
 	erl_cookie_arg() ++
-	erl_env_arg() ++
 	erl_hidden_arg() ++
 	erl_status_arg(AppName);
 make_args(attach, AppName) ->
-    erl_client_name() ++
 	erl_cookie_arg() ++
-	erl_env_arg() ++
 	erl_hidden_arg() ++
 	erl_attach_arg(AppName).
 %%
@@ -277,10 +276,11 @@ emit_args_file(File, Args) ->
 	{ok,Fd} ->
 	    lists:foreach(
 	      fun({Opt,""}) ->
-		      io:format(Fd, "-~s\n", [Opt]);
+		      io:format(Fd, "-~s ", [Opt]);
 		 ({Opt,Value}) ->
-		      io:format(Fd, "-~s \"~s\"\n", [Opt,Value])
+		      io:format(Fd, "-~s \"~s\" ", [Opt,Value])
 	      end, Args),
+	    io:format(Fd, "\n", []),
 	    file:close(Fd),
 	    io:format("wrote file: ~s\n", [File]),
 	    ok;
@@ -294,20 +294,25 @@ emit_args_file(File, Args) ->
 shell_start_command(AppName) ->
     User = os:getenv("USER"),
     Start = erl_args(AppName, start, " -detached"),
+    HomeDir = filename:join(["/"|?VAR]++[AppName]),
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
-      {r,[?TAB, su_command(), ?Q, "(cd ", filename:join(["/"|?VAR]++[AppName]), "; ",
+      {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
+	  "export ERL_CRASH_DUMP=/dev/null; ",
 	  Start, " > /dev/null 2>&1", ")", ?Q ]},
       {r,["else"]},
-      {r,[?TAB, "(cd ", filename:join(["/"|?VAR]++[AppName]), "; ", Start, ")"]},
+      {r,[?TAB, "(cd ", HomeDir, "; ",
+	  "export ERL_CRASH_DUMP=/dev/null; ",
+	  Start, ")"]},
       {r,["fi"]}
      ]}.
 
 %% Generate the stop command
 shell_stop_command(AppName) ->
     User = os:getenv("USER"),
-    Stop = erl_args(AppName, stop, " -noinput"),
+    NodeArg = client_node_arg(),
+    Stop = erl_args(AppName, stop, NodeArg ++ " -noinput"),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -320,7 +325,8 @@ shell_stop_command(AppName) ->
 %% Generate the attach command
 shell_attach_command(AppName) ->
     User = os:getenv("USER"),
-    Attach = erl_args(AppName, attach,  ""),
+    NodeArg = client_node_arg(),
+    Attach = erl_args(AppName, attach, NodeArg),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -333,7 +339,8 @@ shell_attach_command(AppName) ->
 %% Generate the status command
 shell_status_command(AppName) ->
     User = os:getenv("USER"),
-    Status = erl_args(AppName, status,  " -noinput"),
+    NodeArg = client_node_arg(),
+    Status = erl_args(AppName, status,  NodeArg ++ " -noinput"),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
