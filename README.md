@@ -31,7 +31,29 @@ Log files and state information is stored here
     /var/erlang/app/log            ( log files )
     /var/erlang/app/rel/...        ( for releases ? )
 
-Mac OS X
+## Commands
+
+Starting the service is as simple as
+
+    /etc/erlang/<app>/<app>.run start
+
+To stop then 
+
+    /etc/erlang/<app>/<app>.run stop
+
+Attach to the running node and get a shell
+
+    /etc/erlang/<app>/<app>.run attach
+
+ctrl-C will only kill the client node.
+
+To get current status
+
+    /etc/erlang/<app>/<app>.run status
+
+will report 'down' or 'up'
+
+## Mac OS X
 
 To install the service the copy the plist file, make sure the file is owned by
 root and is not writable by any one else than root.
