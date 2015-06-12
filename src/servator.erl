@@ -298,7 +298,7 @@ emit_args_file(File, Args) ->
 %% Generate the start command
 shell_start_command(AppName) ->
     User = os:getenv("USER"),
-    Start = erl_args(AppName, start),
+    Start = erl_args(AppName, start, " -detached"),
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
@@ -312,7 +312,7 @@ shell_start_command(AppName) ->
 %% Generate the stop command
 shell_stop_command(AppName) ->
     User = os:getenv("USER"),
-    Stop = erl_args(AppName, stop),
+    Stop = erl_args(AppName, stop, " -noinput"),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -325,7 +325,7 @@ shell_stop_command(AppName) ->
 %% Generate the attach command
 shell_attach_command(AppName) ->
     User = os:getenv("USER"),
-    Attach = erl_args(AppName, attach),
+    Attach = erl_args(AppName, attach,  " -noinput"),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -338,7 +338,7 @@ shell_attach_command(AppName) ->
 %% Generate the status command
 shell_status_command(AppName) ->
     User = os:getenv("USER"),
-    Status = erl_args(AppName, status),
+    Status = erl_args(AppName, status,  " -noinput"),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -348,7 +348,7 @@ shell_status_command(AppName) ->
       {r, ["fi"]}
      ]}.
 
-erl_args(AppName, Type) ->
+erl_args(AppName, Type, Flags) ->
     Args = init:get_arguments(),
     Name = proplists:get_value(progname, Args, "erl"),
     Executable = os:find_executable(Name),
@@ -356,7 +356,7 @@ erl_args(AppName, Type) ->
     ArgsFilePath = ?ETC++[AppName,to_string(Type)++".args"],
     ArgsFileName = filename:join(ArgsFilePath),
     emit_args_file(ArgsFileName, make_args(Type, AppName)),
-    Executable ++ " -detached "++ " -args_file " ++ 
+    Executable ++ Flags ++ " -args_file " ++ 
 	filename:join(["/" | ArgsFilePath]).
 
 %%
