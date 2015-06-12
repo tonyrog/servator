@@ -205,9 +205,6 @@ erl_path_arg() ->
     Paths = get_paths(Applications),
     [ {"pa",P} || P <- Paths].
 
-erl_foreground_arg() ->
-    [{"noinput", ""}].
-
 erl_smp_arg() ->
     [{"smp", "enabled"}].
 
@@ -256,14 +253,12 @@ make_args(start, AppName) ->
 make_args(stop, AppName) ->
     erl_client_name() ++
 	erl_cookie_arg() ++
-	erl_foreground_arg() ++
 	erl_env_arg() ++
 	erl_hidden_arg() ++
 	erl_stop_arg(AppName);
 make_args(status, AppName) ->
     erl_client_name() ++
 	erl_cookie_arg() ++
-	erl_foreground_arg() ++
 	erl_env_arg() ++
 	erl_hidden_arg() ++
 	erl_status_arg(AppName);
