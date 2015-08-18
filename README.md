@@ -10,8 +10,8 @@ It is so simple to create server scripts this way, example
     > ...
     > halt().
     
-    $ copy etc/erlang/foo to /etc/erlang/foo
-    $ copy var/erlang/foo to /var/erlang/foo
+    $ mv etc/erlang/foo /etc/erlang/foo
+    $ mv var/erlang/foo /var/erlang/foo
     $ # maybe edit /ets/erlang/foo.config to reflect the new home
 
 The file layout created ( linux & mac ) is currently 
@@ -24,6 +24,7 @@ The file layout created ( linux & mac ) is currently
     /etc/erlang/<app>/<app>.run
     /etc/erlang/<app>/org.erlang.<app>.plist  ( max os x launch ctl file )
     /etc/erlang/<app>/<config>     ( applications config )
+
 
 Log files and state information is stored here
 
@@ -52,6 +53,12 @@ To get current status
     /etc/erlang/<app>/<app>.run status
 
 will report 'down' or 'up'
+
+## Linux init.d
+
+    $ sudo cp etc/init.d/foo /etc/init.d/
+    $ sudo chmod +x /etc/init.d/foo
+    $ sudo update-rc.d foo defaults
 
 ## Linux rc.local
 
