@@ -31,6 +31,7 @@ make(AppName0) ->
     AppName = to_string(AppName0),
     make_scripts(AppName),
     make_osx_plist(AppName),
+    make_init_d(AppName),
     ok.
     
 make_scripts(AppName) ->
@@ -135,6 +136,94 @@ osx_plist(AppName) ->
       {r, ["</plist>"]}
      ]}.
 
+%%
+%% Linux: init.d script
+%% Install:
+%%        cp etc/init.d/<app>  to /etc/init.d/
+%%        chmod +x /etc/init.d/<app>
+%%        sudo update-rc.d <app> defaults
+%%
+make_init_d(AppName) ->
+    Initd = filename:join("etc", "init.d"),
+    ok = make_dir(Initd),
+    Script1 = init_d(AppName),
+    Script2 = nl(Script1),
+    Script3 = flat(Script2),
+    FileName = filename:join([Initd, to_string(AppName)]),
+    ok = file:write_file(FileName, list_to_binary(Script3)),
+    ok = make_executable(FileName),
+    io:format("wrote file: ~s\n", [FileName]),
+    ok.
+
+init_d(AppName) ->
+    {script,
+     [
+      {r, ["#! /bin/sh"]},
+      {r, ["#"]},
+      {r, [""]},
+      {r, ["### BEGIN INIT INFO"]},
+      {r, ["# Provides:          ", AppName]},
+      {r, ["# Required-Start:    $remote_fs $network"]},
+      {r, ["# Required-Stop:     $remote_fs $network"]},
+      {r, ["# Default-Start:     2 3 4 5"]},
+      {r, ["# Default-Stop:      0 1 6"]},
+      {r, ["# Short-Description: Starts ", AppName]},
+      {r, ["# Description:       Starts a"]},
+      {r, ["#                    longer description of ",AppName]},
+      {r, ["### END INIT INFO"]},
+      {r, [""]},
+      {r, ["set -e"]},
+      {r, [""]},
+      {r, ["PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin"]},
+      {r, ["DAEMON=/etc/erlang/",AppName,"/",AppName,".run"]},
+      {r, ["NAME=\"",AppName,"\""]},
+      {r, ["DESC=\"Describe ", AppName, " here\""]},
+      {r, [""]},
+      {r, ["test -x $DAEMON || exit 0"]},
+      {r, [""]},
+      {r, ["start()"]},
+      {r, ["{"]},
+      {r, ["    $DAEMON start"]},
+      {r, ["}"]},
+      {r, [""]},
+      {r, ["stop()"]},
+      {r, ["{"]},
+      {r, ["    $DAEMON stop"]},
+      {r, ["}"]},
+      {r, [""]},
+      {r, ["case \"$1\" in"]},
+      {r, ["    start)"]},
+      {r, ["	echo -n \"Starting $DESC: \""]},
+      {r, ["	start"]},
+      {r, ["	echo \"$NAME.\""]},
+      {r, ["    ;;"]},
+      {r, ["    stop)"]},
+      {r, ["	echo -n \"Stopping $DESC: \""]},
+      {r, ["	stop"]},
+      {r, ["	echo \"$NAME.\""]},
+      {r, ["    ;;"]},
+      {r, ["    status)"]},
+      {r, ["	$DAEMON status"]},
+      {r, ["    ;;"]},
+      {r, ["    reload|force-reload)"]},
+      {r, ["	echo \"Reloading $DESC configuration files.\""]},
+      {r, ["	$DAEMON hup"]},
+      {r, ["    ;;"]},
+      {r, ["    restart)"]},
+      {r, ["	echo -n \"Restarting $DESC: \""]},
+      {r, ["	stop"]},
+      {r, ["	start"]},
+      {r, ["	echo \"$NAME.\""]},
+      {r, ["    ;;"]},
+      {r, ["    *)"]},
+      {r, ["	N=/etc/init.d/$NAME"]},
+      {r, ["	echo \"Usage: $N {start|stop|status|restart|reload|force-reload}\" >&2"]},
+      {r, ["	exit 1"]},
+      {r, ["    ;;"]},
+      {r, ["esac"]},
+      {r, [""]},
+      {r, ["exit 0"]}
+     ]}.
 
 %% Install 
 install_script() ->
@@ -148,7 +237,6 @@ make_executable(File) ->
 	Error ->
 	    Error
     end.
-
 
 su_command() ->
     User = os:getenv("USER"),
@@ -196,17 +284,18 @@ erl_config_arg(AppName) ->
     Args = init:get_arguments(),
     case proplists:get_value(config, Args) of
 	undefined -> [];
-	Config ->
-	    ConfigPath = filename:join(?ETC++[AppName, Config]),
+	SrcConfig ->
+	    DstConfig = filename:basename(SrcConfig),
+	    DstConfigPath = filename:join(?ETC++[AppName, DstConfig]),
 	    %% How is the config file located? 
-	    case file:read_file(Config) of
+	    case file:read_file(SrcConfig) of
 		{ok,Bin} ->
-		    ok = file:write_file(ConfigPath, Bin),
-		    io:format("copied file: ~s to ~s\n", [Config, ConfigPath]),
-		    [{"config", filename:join("/", ConfigPath)}];
+		    ok = file:write_file(DstConfigPath, Bin),
+		    io:format("copied file: ~s to ~s\n", [SrcConfig, DstConfigPath]),
+		    [{"config", filename:join("/", DstConfigPath)}];
 		Error ->
-		    io:format("error copy file: ~s : ~p\n", [Config, Error]),
-		    [{"config", filename:join("/", ConfigPath)}]
+		    io:format("error copy file: ~s : ~p\n", [SrcConfig, Error]),
+		    [{"config", filename:join("/", DstConfigPath)}]
 	    end
     end.
 
