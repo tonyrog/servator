@@ -65,14 +65,15 @@ add the following line to /etc/rc.local ( before any exit 0 )
 
 On 10.10 ( and later ? )
 
-    sudo chown root /etc/erlang/<app>/org.erlang.<app>.plist
-    sudo launchctl bootstrap system /etc/erlang/<app>/org.erlang.<app>.plist
+    sudo cp /etc/erlang/<app>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
+    sudo launchctl bootstrap system /System/Library/LaunchDaemons/org.erlang.<app>.plist
     sudo launchctl kickstart system/org.erlang.<app>.plist
     sudo launchctl enable system/org.erlang.<app>.plist
 
-On 10.x before 10.10
+On 10.x before 10.10 ( still works in 10.10! )
 
-    sudo launchctl load -w /etc/erlang/<app>/org.erlang.<app>.plist
+    sudo cp /etc/erlang/<app>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
+    sudo launchctl load -w /System/Library/LaunchDaemons/org.erlang.<app>.plist
 
 Print current status (10.10 ?)
 
