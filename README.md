@@ -12,7 +12,7 @@ It is so simple to create server scripts this way, example
     
     $ mv etc/erlang/foo /etc/erlang/foo
     $ mv var/erlang/foo /var/erlang/foo
-    $ # maybe edit /ets/erlang/foo.config to reflect the new home
+    $ # maybe edit /etc/erlang/foo.config to reflect the new home
 
 The file layout created ( linux & mac ) is currently 
 
