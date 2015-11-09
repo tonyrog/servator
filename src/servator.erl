@@ -284,7 +284,15 @@ erl_config_arg(AppName) ->
     Args = init:get_arguments(),
     case proplists:get_value(config, Args) of
 	undefined -> [];
-	SrcConfig ->
+	SrcConfig0 ->
+	    SrcConfig = 
+		case filename:extension(SrcConfig0) of
+		    [] -> string:concat(SrcConfig0, ".config");
+		    [".config"] -> SrcConfig0;
+		    _Other -> 
+			io:format("warning: unexpected config file: ~s\n", [SrcConfig0]),
+			SrcConfig0
+		end,
 	    DstConfig = filename:basename(SrcConfig),
 	    DstConfigPath = filename:join(?ETC++[AppName, DstConfig]),
 	    %% How is the config file located? 
