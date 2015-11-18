@@ -303,7 +303,7 @@ erl_config_arg(AppName) ->
 %% -pa <path>
 erl_path_arg() ->
     Applications = get_started_applications(),
-    Paths = get_paths(Applications),
+    Paths = get_ebin_paths(Applications),
     [ {"pa",P} || P <- Paths].
 
 erl_smp_arg() ->
@@ -486,10 +486,11 @@ make_dir_([Dir|Ds], Path) ->
 make_dir_([], _Path) ->
     ok.
 
-get_paths([App|As]) ->
-    [ filename:join([code:lib_dir(App),"ebin"]) | get_paths(As)];
-get_paths([]) ->
-    [].
+get_ebin_paths(As) ->
+    [ filename:join([code:lib_dir(App),"ebin"]) || App <- As ].
+
+get_lib_paths(As) ->
+    [ code:lib_dir(App) || App <- As ].
 
 to_string(X) when is_atom(X) -> atom_to_list(X);
 to_string(X) when is_list(X) -> X;
@@ -531,3 +532,143 @@ system_applications([AppVsn|Apps], LibDir, Acc) ->
     end;
 system_applications([],_LibDir,Acc) ->
     Acc.
+%%
+%% if release is wanted
+%% 1 - copy non-otp applications to /var/erlang/<app>/lib/..
+%% 2 - copy also otp applications to /var/erlang/<app>/lib/..
+%% 3 - copy erts to /var/erlang/<app>/erts-<vsn> and
+%%     scripts to /var/erlang/<app>/bin
+%%
+%% Copy erts data
+%%   erts-<vsn>/bin
+%%       beam | beam.smp, child_setup, epmd, heart, inet_gethost,
+%%       erlexec, escript
+%%
+%%  vsn = erlang:system_info(version)
+%%  read root from init:get_arguments()
+%%
+copy_erlang_erts(AppName) ->
+    Beam = "beam.smp",
+    Args = init:get_arguments(),
+    [Root] = proplists:get_value(root, Args),
+    ErtsVsn = "erts-"++erlang:system_info(version),
+    SrcDir = filename:join([Root, ErtsVsn, "bin"]),
+    DstDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
+    make_dir(DstDir),
+
+    lists:foreach(
+      fun(File) ->
+	      copy_with_mode(filename:join([SrcDir, File]),
+			     filename:join([DstDir, File]))
+      end, [Beam, "child_setup", "epmd", "heart", "inet_gethost",
+	    "erlexec", "escript"]).
+
+copy_erlang_bin(AppName) ->
+    Args = init:get_arguments(),
+    [Root] = proplists:get_value(root, Args),
+    SrcDir = filename:join(Root, "bin"),
+    DstDir = filename:join(?VAR ++ [AppName, "bin"]),
+    ErtsVsn = "erts-"++erlang:system_info(version),
+    ErtsBinDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
+    make_dir(DstDir),
+
+    %% copy scripts (fixme patch 'erl') change ROOT
+    lists:foreach(
+      fun(File) ->
+	      copy_with_mode(filename:join([SrcDir, File]),
+			     filename:join([DstDir, File]))
+      end, ["erl", "erlc", "escript", "start.boot", "start.script" ]),
+    %% set symlinks (fixme make relative?)
+    lists:foreach(
+      fun(File) ->
+	      file:make_symlink(
+		filename:join(["/",ErtsBinDir,File]),
+		filename:join([DstDir, File]))
+      end, ["epmd"]).
+
+user_applications() ->
+    SysApps = system_applications(),
+    UserApps =
+	lists:filter(fun({fnotify,_,_}) -> false;
+			({error_emacs,_,_}) -> false;
+			({App,_Comment,_Vsn}) ->
+			     not lists:member(App, SysApps) end,
+		     application:loaded_applications()),
+    UApps = lists:map(fun({App,_,_Vsn}) -> App end, UserApps),
+    %% list all dependencies
+    DepApps0 =
+	lists:map(fun(App) ->
+			  {ok,Apps} = application:get_key(App, applications),
+			  Apps
+		  end, UApps),
+    %% remove system apps and already listed apps
+    DepApps = (lists:usort(lists:flatten(DepApps0)) -- SysApps) -- UApps,
+    %% fixme: make this recursive!
+    XtraApps = 
+	lists:map(
+	  fun(App) ->
+		  application:load(App),
+		  {ok,Descr} = application:get_key(App, description),
+		  {ok,Vsn} = application:get_key(App, vsn),
+		  {App, Descr, Vsn}
+	  end, DepApps),
+    UserApps ++ XtraApps.
+    
+copy_user_applications(AppName) ->
+    DstDir = filename:join(?VAR ++ [AppName, "lib"]),
+    make_dir(DstDir),
+    lists:foreach(
+      fun({App,_Descr,Vsn}) ->
+	      Src = code:lib_dir(App),
+	      Dst = filename:join(DstDir, atom_to_list(App)++"-"++Vsn),
+	      copy_dir(Src, Dst)
+      end, user_applications()).
+
+otp_applications() ->
+    SysApps = system_applications(),
+    lists:filter(fun({App,_Comment,_Vsn}) -> lists:member(App, SysApps) end,
+		 application:loaded_applications()).
+
+copy_otp_applications(AppName) ->
+    DstDir = filename:join(?VAR ++ [AppName, "lib"]),
+    make_dir(DstDir),
+    lists:foreach(
+      fun({App,_Descr,Vsn}) ->
+	      Src = code:lib_dir(App),
+	      Dst = filename:join(DstDir, atom_to_list(App)++"-"++Vsn),
+	      copy_dir(Src, Dst)
+      end, otp_applications()).
+
+copy_dir(Src, Dst) ->
+    make_dir(Dst),
+    {ok,Cwd} = file:get_cwd(),
+    case file:list_dir(Src) of
+	{ok,[]} -> ok;
+	{ok,Files0} ->
+	    Files = if Src =:= Cwd ->
+			    Files0 -- ["var", "etc"];
+		       true ->
+			    Files0
+		    end,
+	    lists:foreach(
+	      fun([$.|_File]) -> %% ignore all dot files!
+		      ok;
+		 (File) ->
+		      Src1 = filename:join(Src,File),
+		      Dst1 = filename:join(Dst,File),
+		      case filelib:is_dir(Src1) of
+			  true -> copy_dir(Src1, Dst1);
+			  false -> copy_with_mode(Src1,Dst1)
+		      end
+	      end, Files),
+	    io:format("copied dir ~s to ~s\n", [Src, Dst]);
+	Error ->
+	    Error
+    end.
+
+copy_with_mode(Src, Dst) ->
+    io:format("about to copy ~s\n", [Src]),
+    {ok,_Size} = file:copy(Src, Dst),
+    io:format("copied file ~s to ~s [~w bytes]\n", [Src, Dst, _Size]),
+    {ok,Info} = file:read_file_info(Src),
+    file:change_mode(Dst, Info#file_info.mode).
