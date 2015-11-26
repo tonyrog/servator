@@ -1,0 +1,29 @@
+
+make a release
+
+# 1 full release
+
+All otp/user applications are copied, with version, to this location:
+
+    var/erlang/<app>/lib/..
+
+ERTS execuatbles are copied here:
+
+    var/erlang/<app>/erts-<vsn>/...
+
+Executables and scripts are copied here:
+
+    var/erlang/<app>/bin/...
+
+Releases are located here, referenced from scripts if used. Entries
+are symlinks pointing to var/erlang/<app>/lib
+
+    var/erlang/<app>/rel/<rel-vsn>/<lib-symlink>
+
+example:
+
+    var/erlang/foo/rel/1.1/bar -> var/erlang/foo/lib/bar-4.5
+
+Applications start and config are located here:
+
+    ets/erlang/<app>/

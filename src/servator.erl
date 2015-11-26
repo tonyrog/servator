@@ -3,6 +3,24 @@
 %%
 -module(servator).
 
+-export([make/1]).
+-export([make_release/2]).
+
+-export([system_applications/0]).
+-export([user_applications/0]).
+-export([get_started_applications/0]).
+
+-export([copy_erlang_erts/1]).
+-export([copy_erlang_bin/1]).
+-export([copy_user_applications/1]).
+-export([copy_otp_applications/1]).
+
+%% util
+-export([make_dir/1]).  %% recursive
+-export([copy_dir/2]).  %% recursive
+-export([copy_with_mode/2]).
+-export([make_executable/1]).
+
 -compile(export_all).
 
 -include_lib("kernel/include/file.hrl").
@@ -26,14 +44,23 @@
 %% ERL_FULLSWEEP_AFTER
 %% ERL_MAX_PORTS
 %%
-
+make_release(AppName0, Rel0) ->
+    AppName = to_string(AppName0),
+    Rel = to_string(Rel0),
+    make(AppName0),
+    copy_erlang_erts(AppName),
+    copy_erlang_bin(AppName),
+    copy_user_applications(AppName),
+    copy_otp_applications(AppName),
+    make_release_dir(AppName0, Rel).
+    
 make(AppName0) ->
     AppName = to_string(AppName0),
     make_scripts(AppName),
     make_osx_plist(AppName),
     make_init_d(AppName),
     ok.
-    
+
 make_scripts(AppName) ->
     Etc = filename:join(?ETC ++ [AppName]),
     Var = filename:join(?VAR ++ [AppName]),
@@ -580,7 +607,7 @@ copy_erlang_bin(AppName) ->
     ErtsBinDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
     make_dir(DstDir),
 
-    %% copy scripts (fixme patch 'erl') change ROOT
+    %% copy scripts (fixme patch 'erl') change ROOTDIR while coping erl script
     lists:foreach(
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
@@ -646,6 +673,25 @@ copy_otp_applications(AppName) ->
 	      Dst = filename:join(DstDir, atom_to_list(App)++"-"++Vsn),
 	      copy_dir(Src, Dst)
       end, otp_applications()).
+
+%% Create relase dir for current version "Rel"
+make_release_dir(AppName, Rel) ->
+    RelDir = filename:join(?VAR ++ [AppName, "rel", Rel]),
+    make_dir(RelDir),
+    lists:foreach(
+      fun({App,_Descr,Vsn}) ->
+	      App1 = to_string(App),
+	      Exist = filename:join(["/",?VAR++[AppName,"lib",App1++"-"++Vsn]]),
+	      New = filename:join(?VAR ++ [AppName,"rel",Rel,App1]),
+	      ok = file:make_symlink(Exist, New)
+      end, otp_applications()),
+    lists:foreach(
+      fun({App,_Descr,Vsn}) ->
+	      App1 = to_string(App),
+	      Exist = filename:join(["/",?VAR++[AppName,"lib",App1++"-"++Vsn]]),
+	      New = filename:join(?VAR ++ [AppName,"rel",Rel,App1]),
+	      ok = file:make_symlink(Exist, New)
+      end, user_applications()).
 
 copy_dir(Src, Dst) ->
     make_dir(Dst),
