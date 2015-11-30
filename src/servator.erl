@@ -330,7 +330,9 @@ make_cookie_file(AppName) ->
 	    {error,nocookie};
 	Cookie ->
 	    CookieFile = filename:join(?ETC ++ [AppName,".erlang.cookie"]),
-	    file:write_file(CookieFile, Cookie),
+	    CookieData = list_to_binary(atom_to_list(Cookie)),
+	    io:format("write file: ~s\n", [CookieFile]),
+	    file:write_file(CookieFile, CookieData),
 	    {ok,Info} = file:read_file_info(CookieFile),
 	    Mode = Info#file_info.mode band 8#700,
 	    file:change_mode(CookieFile, Mode)
@@ -473,7 +475,7 @@ shell_interactive_command(AppName,Rel) ->
 	end,
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     HomeDir = "$VAR", %% filename:join(["/"|?VAR]++[AppName]),
-    Start = erl_args(AppName, start, Flags0, Rel),
+    Start = erl_args(AppName, start, Flags1, Rel),
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
@@ -707,7 +709,7 @@ make_release_dir(AppName, Rel) ->
     make_dir(RelLibDir),
 
     %% create a patches directory that is ( always search first )
-    make_dir(filename:join([RelLibDir, "PATCHES", "ebin"]),
+    make_dir(filename:join([RelLibDir, "PATCHES", "ebin"])),
     
     %% symlink otp applications - keep version to make start script happy
     lists:foreach(
@@ -736,7 +738,7 @@ make_release_dir(AppName, Rel) ->
 	      New = filename:join(RelLibDir,App),
 	      ok = symlink(Exist, New)
       end, user_applications()),
-
+    
     %% symlink erts directory
     ErtsVsn = "erts-"++erlang:system_info(version),
     Args = init:get_arguments(),
@@ -747,7 +749,7 @@ make_release_dir(AppName, Rel) ->
 		    filename:join(["..", "..", ErtsVsn])
 	    end,
     ok = symlink(Exist, filename:join(RelDir, "erts")),
-
+    
     BinDir = filename:join(RelDir, "bin"),
     make_dir(BinDir),
 
@@ -758,7 +760,7 @@ make_release_dir(AppName, Rel) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
 			     filename:join([BinDir, File]))
       end, ["erlc", "escript", "start.boot", "start.script" ]),
-
+    
     %% copy "erl" and patch location
     %% ROOTDIR=filename:join("/", RelDir),
     ROOTDIR="$THISDIR",
