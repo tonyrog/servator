@@ -18,6 +18,7 @@
 %% util
 -export([make_dir/1]).  %% recursive
 -export([copy_dir/2]).  %% recursive
+-export([copy_app/2]).  %% recursive
 -export([copy_with_mode/2]).
 -export([copy_replace/3]).
 -export([make_executable/1]).
@@ -33,6 +34,8 @@
 -define(ETC, ["etc", "erlang"]).
 -define(VAR, ["var", "erlang"]).
 
+%% -define(dbg(F,A), ok).
+-define(dbg(F,A), io:format((F), (A))).
 %% Nice to set environment variables
 %% ERL_CRASH_DUMP=/dev/null
 %% Others found in runtime system:
@@ -64,8 +67,9 @@ make_release(AppName0, Rel0) ->
 
 make(AppName0,Rel0) ->
     AppName = to_string(AppName0),
-    make_scripts(AppName,to_string(Rel0)),
-    make_osx_plist(AppName),
+    Rel = to_string(Rel0),
+    make_scripts(AppName,Rel),
+    make_osx_plist(AppName,Rel),
     make_init_d(AppName),
     ok = make_cookie_file(AppName),
     ok.
@@ -76,6 +80,7 @@ make_scripts(AppName,Rel0) ->
     Var = filename:join(?VAR ++ [AppName]),
     ok = make_dir(Etc),
     ok = make_dir(Var),
+    ok = copy_config(AppName),
     Start = shell_start_command(AppName,Rel),
     Interactive = shell_interactive_command(AppName,Rel),
     Stop  = shell_stop_command(AppName,Rel),
@@ -121,21 +126,21 @@ make_scripts(AppName,Rel0) ->
 		     | Script2]}),
     Run = filename:join([Etc, to_string(AppName)++".run"]),
     ok = file:write_file(Run, list_to_binary(Script3)),
-    io:format("wrote file: ~s\n", [Run]),
+    ?dbg("wrote file: ~s\n", [Run]),
     ok = make_executable(Run).
 
 %% Make the serv plist to use with mac os, replace the start/stop
 %% sudo launchctl load /etc/erlang/<app>/<app>.plist 
 %% sudo launchctl unload /etc/erlang/<app>/<app>.plist 
 
-make_osx_plist(AppName) ->
-    Script1 = osx_plist(AppName),
+make_osx_plist(AppName,Rel) ->
+    Script1 = osx_plist(AppName,Rel),
     Script2 = nl(Script1),
     Script3 = flat(Script2),
     FileName = "org.erlang."++to_string(AppName)++".plist",
     PList = filename:join(?ETC++[AppName,FileName]),
     ok = file:write_file(PList, list_to_binary(Script3)),
-    io:format("wrote file: ~s\n", [PList]),
+    ?dbg("wrote file: ~s\n", [PList]),
     ok.
 
 %% OSX:
@@ -144,13 +149,15 @@ make_osx_plist(AppName) ->
 %%   sudo launchctl kickstart system/org.erlang.<app>.plist
 %%   sudo launchctl enable system/org.erlang.<app>.plist
 %%
-osx_plist(AppName) ->
-    Args = init:get_arguments(),
-    Name = proplists:get_value(progname, Args, "erl"),
-    Executable = os:find_executable(Name),
-    ArgsFilePath = filename:join(["/"|?ETC]++
-				     [AppName,to_string(start)++".args"]),
-    HomeDir = filename:join(["/"|?VAR]++[AppName]),
+osx_plist(AppName,Rel) ->
+    Var = filename:join(["/"|?VAR]++[AppName]),
+    EtcDir = filename:join(["/"|?ETC]++[AppName]),
+    RelDir = filename:join([Var,"rel",Rel]),
+
+    PatchDir = filename:join([RelDir,"lib","PATCHES","ebin"]),
+    ArgsFilePath = filename:join(EtcDir,"start.args"),
+    ConfigPath = filename:join(EtcDir,AppName++".config"),
+    ErlPath  = filename:join([RelDir,"bin","erl"]),
     User = os:getenv("USER"),
 
     {script,
@@ -165,7 +172,7 @@ osx_plist(AppName) ->
       {r, [?TAB,?TAB,"<key>EnvironmentVariables</key>"]},
       {r, [?TAB,?TAB,"<dict>"]},
       {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
-      {r, [?TAB,?TAB,?TAB,"<string>",HomeDir,"</string>"]},
+      {r, [?TAB,?TAB,?TAB,"<string>",EtcDir,"</string>"]},
       {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP</key>"]},
       {r, [?TAB,?TAB,?TAB,"<string>/dev/null</string>"]},
 %%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
@@ -173,8 +180,12 @@ osx_plist(AppName) ->
       {r, [?TAB,?TAB,"</dict>"]},
       {r, [?TAB,?TAB,"<key>ProgramArguments</key>"]},
       {r, [?TAB,?TAB,"<array>"]},
-      {r, [?TAB,?TAB,"<string>", Executable, "</string>"]},
-      {r, [?TAB,?TAB,"<string>-noinput</string>"]},
+      {r, [?TAB,?TAB,"<string>", ErlPath, "</string>"]},
+      {r, [?TAB,?TAB,"<string>-config</string>"]},
+      {r, [?TAB,?TAB,"<string>",ConfigPath,"</string>"]},
+      {r, [?TAB,?TAB,"<string>-pa</string>"]},
+      {r, [?TAB,?TAB,"<string>",PatchDir,"</string>"]},
+      {r, [?TAB,?TAB,"<string>-noinput</string>"]},  %% detached does not work!!
       {r, [?TAB,?TAB,"<string>-args_file</string>"]},
       {r, [?TAB,?TAB,"<string>",ArgsFilePath,"</string>"]},
       {r, [?TAB,?TAB,"</array>"]},
@@ -189,7 +200,7 @@ osx_plist(AppName) ->
       {r, [?TAB,?TAB,"<key>KeepAlive</key>"]},
       {r, [?TAB,?TAB,"<true/>"]},
       {r, [?TAB,?TAB,"<key>WorkingDirectory</key>"]},
-      {r, [?TAB,?TAB,"<string>", HomeDir, "</string>"]},
+      {r, [?TAB,?TAB,"<string>", Var, "</string>"]},
       {r, [?TAB,"</dict>"]},
       {r, ["</plist>"]}
      ]}.
@@ -210,7 +221,7 @@ make_init_d(AppName) ->
     FileName = filename:join([Initd, to_string(AppName)]),
     ok = file:write_file(FileName, list_to_binary(Script3)),
     ok = make_executable(FileName),
-    io:format("wrote file: ~s\n", [FileName]),
+    ?dbg("wrote file: ~s\n", [FileName]),
     ok.
 
 init_d(AppName) ->
@@ -331,7 +342,7 @@ make_cookie_file(AppName) ->
 	Cookie ->
 	    CookieFile = filename:join(?ETC ++ [AppName,".erlang.cookie"]),
 	    CookieData = list_to_binary(atom_to_list(Cookie)),
-	    io:format("write file: ~s\n", [CookieFile]),
+	    ?dbg("write file: ~s\n", [CookieFile]),
 	    file:write_file(CookieFile, CookieData),
 	    {ok,Info} = file:read_file_info(CookieFile),
 	    Mode = Info#file_info.mode band 8#700,
@@ -345,31 +356,9 @@ erl_hidden_arg() ->
 erl_config_arg(AppName) ->
     Args = init:get_arguments(),
     case proplists:get_value(config, Args) of
-	undefined -> "";
-	SrcConfig0 ->
-	    SrcConfig = 
-		case filename:extension(SrcConfig0) of
-		    [] -> string:concat(SrcConfig0, ".config");
-		    ".config" -> 
-			SrcConfig0;
-		    _Other ->
-			io:format("warning: unexpected config file: ~s\n", 
-				  [SrcConfig0]),
-			SrcConfig0
-		end,
-	    DstConfig = filename:basename(SrcConfig),
-	    DstConfigPath = filename:join(?ETC++[AppName, DstConfig]),
-	    %% How is the config file located? 
-	    case file:read_file(SrcConfig) of
-		{ok,Bin} ->
-		    ok = file:write_file(DstConfigPath, Bin),
-		    io:format("copied file: ~s to ~s\n",
-			      [SrcConfig, DstConfigPath]),
-		    DstConfig;
-		Error ->
-		    io:format("error copy file: ~s : ~p\n", [SrcConfig, Error]),
-		    DstConfig
-	    end
+	undefined -> 
+	    "";
+	_ -> AppName ++ ".config"
     end.
 
 erl_smp_arg() ->
@@ -388,9 +377,21 @@ erl_stop_arg(_AppName) ->
     NodeName = atom_to_list(node()),
     [{"eval", "case rpc:call('"++NodeName++"', init, stop, []) of ok -> erlang:display(ok), erlang:halt(0); {badrpc,R} -> erlang:display(R), erlang:halt(1) end."}].
 
-erl_status_arg(_AppName) ->
+%% status check code:
+%%  case net_adm:pin(Node) of
+%%     pong ->
+%%        try rpc:call(Node,App,status,[])
+%%        catch error:_ -> erlang:display(up)
+%%        end,
+%%        erlang:halt(0);
+%%     pang ->
+%%        erlang:display(down),
+%%        erlang:halt(1)
+%%  end
+%%
+erl_status_arg(AppName) ->
     NodeName = atom_to_list(node()),
-    [{"eval", "case net_adm:ping('"++NodeName++"') of pong -> erlang:display(up), erlang:halt(0); pang -> erlang:display(down), erlang:halt(1) end."}].
+    [{"eval", "case net_adm:ping('"++NodeName++"') of pong -> try rpc:call('"++NodeName++"',"++AppName++",status,[]) catch error:_ -> erlang:display(up) end, erlang:halt(0); pang -> erlang:display(down), erlang:halt(1) end."}].
 
 erl_attach_arg(_AppName) ->
     NodeName = atom_to_list(node()),
@@ -431,7 +432,7 @@ emit_args_file(File, Args) ->
 	      end, Args),
 	    io:format(Fd, "\n", []),
 	    file:close(Fd),
-	    io:format("wrote file: ~s\n", [File]),
+	    ?dbg("wrote file: ~s\n", [File]),
 	    ok;
 	Error ->
 	    io:format("error writing file: ~s: ~p\n", [File, Error]),
@@ -559,24 +560,6 @@ flat({r,Row}) -> Row;
 flat({script,S}) -> flat(S);
 flat([]) -> [].
 
-make_dir(Dir) ->
-    Ds = filename:split(Dir),
-    make_dir_(Ds, ".").
-
-make_dir_([Dir|Ds], Path) ->
-    Path1 = filename:join(Path, Dir),
-    io:format("make_dir ~s\n", [Path1]),
-    case file:make_dir(Path1) of
-	ok ->
-	    make_dir_(Ds, Path1);
-	{error,eexist} ->
-	    make_dir_(Ds, Path1);
-	Error ->
-	    Error
-    end;
-make_dir_([], _Path) ->
-    ok.
-
 get_ebin_paths(As) ->
     [ filename:join([code:lib_dir(App),"ebin"]) || App <- As ].
 
@@ -623,6 +606,37 @@ system_applications([AppVsn|Apps], LibDir, Acc) ->
     end;
 system_applications([],_LibDir,Acc) ->
     Acc.
+
+copy_config(AppName) ->
+    Args = init:get_arguments(),
+    case proplists:get_value(config, Args) of
+	undefined -> 
+	    "";
+	[SrcConfig0] ->
+	    SrcConfig = 
+		case filename:extension(SrcConfig0) of
+		    [] ->
+			SrcConfig0 ++ ".config";
+		    ".config" -> 
+			SrcConfig0;
+		    _Other ->
+			io:format("warning: unexpected config file: ~s\n", 
+				  [SrcConfig0]),
+			SrcConfig0
+		end,
+	    DstConfig = AppName ++ ".config",
+	    DstConfigPath = filename:join(?ETC++[AppName, DstConfig]),
+	    case file:read_file(SrcConfig) of
+		{ok,Bin} ->
+		    ok = file:write_file(DstConfigPath, Bin),
+		    ?dbg("copied file: ~s to ~s\n",
+			 [SrcConfig, DstConfigPath]),
+		    ok;
+		Error ->
+		    io:format("error copy file: ~s : ~p\n", [SrcConfig, Error]),
+		    Error
+	    end
+    end.
 %%
 %% Copy erts data
 %%   erts-<vsn>/bin
@@ -639,7 +653,7 @@ copy_erlang_erts(AppName) ->
     ErtsVsn = "erts-"++erlang:system_info(version),
     SrcDir = filename:join([Root, ErtsVsn, "bin"]),
     DstDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
-    make_dir(DstDir),
+    ok = make_dir(DstDir),
 
     lists:foreach(
       fun(File) ->
@@ -679,12 +693,12 @@ user_applications() ->
     
 copy_user_applications(AppName) ->
     DstDir = filename:join(?VAR ++ [AppName, "lib"]),
-    make_dir(DstDir),
+    ok = make_dir(DstDir),
     lists:foreach(
       fun({App,_Descr,Vsn}) ->
 	      Src = code:lib_dir(App),
 	      Dst = filename:join(DstDir, atom_to_list(App)++"-"++Vsn),
-	      copy_dir(Src, Dst)
+	      copy_app(Src, Dst)
       end, user_applications()).
 
 otp_applications() ->
@@ -694,22 +708,22 @@ otp_applications() ->
 
 copy_otp_applications(AppName) ->
     DstDir = filename:join(?VAR ++ [AppName, "lib"]),
-    make_dir(DstDir),
+    ok = make_dir(DstDir),
     lists:foreach(
       fun({App,_Descr,Vsn}) ->
 	      Src = code:lib_dir(App),
 	      Dst = filename:join(DstDir, atom_to_list(App)++"-"++Vsn),
-	      copy_dir(Src, Dst)
+	      copy_app(Src, Dst)
       end, otp_applications()).
 
 
 make_release_dir(AppName, Rel) ->
     RelDir = filename:join(?VAR ++ [AppName, "rel", Rel]),
     RelLibDir = filename:join(RelDir, "lib"),
-    make_dir(RelLibDir),
+    ok = make_dir(RelLibDir),
 
     %% create a patches directory that is ( always search first )
-    make_dir(filename:join([RelLibDir, "PATCHES", "ebin"])),
+    ok = make_dir(filename:join([RelLibDir, "PATCHES", "ebin"])),
     
     %% symlink otp applications - keep version to make start script happy
     lists:foreach(
@@ -751,7 +765,7 @@ make_release_dir(AppName, Rel) ->
     ok = symlink(Exist, filename:join(RelDir, "erts")),
     
     BinDir = filename:join(RelDir, "bin"),
-    make_dir(BinDir),
+    ok = make_dir(BinDir),
 
     SrcDir = filename:join(Root, "bin"),
     %% copy scripts
@@ -791,20 +805,37 @@ symlink(Exist, New) ->
 	Error -> Error
     end.
 		    
-	    
-    
+
+%% copy application directory
+%% ebin priv include  [ src ]
+%%
+
+%% default to "binary" release
+copy_app(Src, Dst) ->
+    copy_app(Src, Dst, ["ebin", "priv", "include"]).
+
+copy_app(Src, Dst, DirList) ->
+    ok = make_dir(Dst),
+    lists:foreach(
+      fun(File) ->
+	      SrcDir = filename:join(Src, File),
+	      case filelib:is_dir(SrcDir) of
+		  true ->
+		      DstDir = filename:join(Dst,File),
+		      copy_dir(SrcDir, DstDir);
+		  false ->
+		      ok
+	      end
+      end, DirList),
+    ?dbg("copied app ~s\n", [Src]),
+    ok.
+
 
 copy_dir(Src, Dst) ->
-    make_dir(Dst),
-    {ok,Cwd} = file:get_cwd(),
+    ok = make_dir(Dst),
     case file:list_dir(Src) of
 	{ok,[]} -> ok;
-	{ok,Files0} ->
-	    Files = if Src =:= Cwd ->
-			    Files0 -- ["var", "etc"];
-		       true ->
-			    Files0
-		    end,
+	{ok,Files} ->
 	    lists:foreach(
 	      fun([$.|_File]) -> %% ignore all dot files!
 		      ok;
@@ -816,15 +847,14 @@ copy_dir(Src, Dst) ->
 			  false -> copy_with_mode(Src1,Dst1)
 		      end
 	      end, Files),
-	    io:format("copied dir ~s to ~s\n", [Src, Dst]);
+	    ?dbg("copied dir ~s to ~s\n", [Src, Dst]);
 	Error ->
 	    Error
     end.
 
 copy_with_mode(Src, Dst) ->
-    io:format("about to copy ~s\n", [Src]),
     {ok,_Size} = file:copy(Src, Dst),
-    io:format("copied file ~s to ~s [~w bytes]\n", [Src, Dst, _Size]),
+    ?dbg("copied file ~s to ~s [~w bytes]\n", [Src, Dst, _Size]),
     {ok,Info} = file:read_file_info(Src),
     file:change_mode(Dst, Info#file_info.mode).
 
@@ -868,3 +898,21 @@ replace_data(Data, [{RE,Replacement,Options}|REs]) ->
     end;
 replace_data(Data, []) ->
     Data.
+
+make_dir(Dir) ->
+    Ds = filename:split(Dir),
+    make_dir_(Ds, ".").
+
+make_dir_([Dir|Ds], Path) ->
+    Path1 = filename:join(Path, Dir),
+    ?dbg("make_dir ~s\n", [Path1]),
+    case file:make_dir(Path1) of
+	ok ->
+	    make_dir_(Ds, Path1);
+	{error,eexist} ->
+	    make_dir_(Ds, Path1);
+	Error ->
+	    Error
+    end;
+make_dir_([], _Path) ->
+    ok.
