@@ -4,6 +4,7 @@
 -module(servator).
 
 -export([make/1]).
+-export([make_soft_release/1]).
 -export([make_release/2]).
 
 -export([system_applications/0]).
@@ -11,7 +12,6 @@
 -export([get_started_applications/0]).
 
 -export([copy_erlang_erts/1]).
--export([copy_erlang_bin/1]).
 -export([copy_user_applications/1]).
 -export([copy_otp_applications/1]).
 
@@ -19,6 +19,7 @@
 -export([make_dir/1]).  %% recursive
 -export([copy_dir/2]).  %% recursive
 -export([copy_with_mode/2]).
+-export([copy_replace/3]).
 -export([make_executable/1]).
 
 -compile(export_all).
@@ -44,37 +45,50 @@
 %% ERL_FULLSWEEP_AFTER
 %% ERL_MAX_PORTS
 %%
+make(AppName0) ->
+    make_soft_release(AppName0).
+
+make_soft_release(AppName0) ->
+    Rel = "soft",
+    make(AppName0,Rel),
+    make_release_dir(AppName0, Rel).
+
 make_release(AppName0, Rel0) ->
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
-    make(AppName0),
+    make(AppName0,Rel0),
     copy_erlang_erts(AppName),
-    copy_erlang_bin(AppName),
     copy_user_applications(AppName),
     copy_otp_applications(AppName),
     make_release_dir(AppName0, Rel).
-    
-make(AppName0) ->
+
+make(AppName0,Rel0) ->
     AppName = to_string(AppName0),
-    make_scripts(AppName),
+    make_scripts(AppName,to_string(Rel0)),
     make_osx_plist(AppName),
     make_init_d(AppName),
+    ok = make_cookie_file(AppName),
     ok.
 
-make_scripts(AppName) ->
+make_scripts(AppName,Rel0) ->
+    Rel = to_string(Rel0),
     Etc = filename:join(?ETC ++ [AppName]),
     Var = filename:join(?VAR ++ [AppName]),
     ok = make_dir(Etc),
     ok = make_dir(Var),
-    Start = shell_start_command(AppName),
-    Stop  = shell_stop_command(AppName),
-    Attach = shell_attach_command(AppName),
-    Status = shell_status_command(AppName),
+    Start = shell_start_command(AppName,Rel),
+    Interactive = shell_interactive_command(AppName,Rel),
+    Stop  = shell_stop_command(AppName,Rel),
+    Attach = shell_attach_command(AppName,Rel),
+    Status = shell_status_command(AppName,Rel),
     Script0 =
 	{script,[
 		 {r,["case $1 in"]},
 		 {r,["start)"]},
 		 tab(Start),
+		 {r, [?TAB ";;"]},
+		 {r,["interactive)"]},
+		 tab(Interactive),
 		 {r, [?TAB ";;"]},
 		 {r, ["stop)"]},
 		 tab(Stop),
@@ -88,9 +102,26 @@ make_scripts(AppName) ->
 		 {r, ["esac"]}]},
     Script1 = tab(Script0),
     Script2 = nl(Script1),
-    Script3 = flat({script,[{r,["#!/bin/bash\n"]} | Script2]}),
+    Script3 = flat({script,
+		    [
+		     {r,["#!/bin/bash\n"]},
+		     {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/../../..\" && pwd)`",?NL]},
+		     {r,["PREFIX=$THISDIR",?NL]},  %% maybe set to . or whatever
+		     {r,["VSN=",Rel,?NL]},
+		     {r,["VAR=","$PREFIX","/",Var,?NL]},
+		     {r,["ETC=","$PREFIX","/",Etc,?NL]},
+		     {r,["export HOME=","$PREFIX","/",Etc,?NL]},
+		     if Rel =:= "" ->
+			     {r,["ERL=","erl",?NL]};
+			true ->
+			     {r,["ERL=",
+				 filename:join(["$VAR","rel","$VSN",
+						"bin","erl"]),?NL]}
+		     end
+		     | Script2]}),
     Run = filename:join([Etc, to_string(AppName)++".run"]),
     ok = file:write_file(Run, list_to_binary(Script3)),
+    io:format("wrote file: ~s\n", [Run]),
     ok = make_executable(Run).
 
 %% Make the serv plist to use with mac os, replace the start/stop
@@ -252,10 +283,6 @@ init_d(AppName) ->
       {r, ["exit 0"]}
      ]}.
 
-%% Install 
-install_script() ->
-    ok.
-
 make_executable(File) ->
     case file:read_file_info(File) of
 	{ok, Info} ->
@@ -294,30 +321,38 @@ client_node_arg() ->
 		[_|_] -> " -name client_$$"
 	    end
     end.
-    
-%% -setcookie cookie
-erl_cookie_arg() ->
-    case erlang:get_cookie() of
-	nocookie -> [];
-	Cookie -> [{"setcookie", atom_to_list(Cookie)}]
-    end.
 
+%% Write cookie in a cookie file under /etc/erlang/<app>/.erlang.cookie
+%% and setup cookie file mode.
+make_cookie_file(AppName) ->
+    case erlang:get_cookie() of
+	nocookie -> 
+	    {error,nocookie};
+	Cookie ->
+	    CookieFile = filename:join(?ETC ++ [AppName,".erlang.cookie"]),
+	    file:write_file(CookieFile, Cookie),
+	    {ok,Info} = file:read_file_info(CookieFile),
+	    Mode = Info#file_info.mode band 8#700,
+	    file:change_mode(CookieFile, Mode)
+    end.
+    
 %% -hidden - make sure client node is not attached into a cluster
 erl_hidden_arg() ->
     [{"hidden", ""}].
 
-
 erl_config_arg(AppName) ->
     Args = init:get_arguments(),
     case proplists:get_value(config, Args) of
-	undefined -> [];
+	undefined -> "";
 	SrcConfig0 ->
 	    SrcConfig = 
 		case filename:extension(SrcConfig0) of
 		    [] -> string:concat(SrcConfig0, ".config");
-		    [".config"] -> SrcConfig0;
-		    _Other -> 
-			io:format("warning: unexpected config file: ~s\n", [SrcConfig0]),
+		    ".config" -> 
+			SrcConfig0;
+		    _Other ->
+			io:format("warning: unexpected config file: ~s\n", 
+				  [SrcConfig0]),
 			SrcConfig0
 		end,
 	    DstConfig = filename:basename(SrcConfig),
@@ -326,20 +361,14 @@ erl_config_arg(AppName) ->
 	    case file:read_file(SrcConfig) of
 		{ok,Bin} ->
 		    ok = file:write_file(DstConfigPath, Bin),
-		    io:format("copied file: ~s to ~s\n", [SrcConfig, DstConfigPath]),
-		    [{"config", filename:join("/", DstConfigPath)}];
+		    io:format("copied file: ~s to ~s\n",
+			      [SrcConfig, DstConfigPath]),
+		    DstConfig;
 		Error ->
 		    io:format("error copy file: ~s : ~p\n", [SrcConfig, Error]),
-		    [{"config", filename:join("/", DstConfigPath)}]
+		    DstConfig
 	    end
     end.
-
-%% Generate all paths needed
-%% -pa <path>
-erl_path_arg() ->
-    Applications = get_started_applications(),
-    Paths = get_ebin_paths(Applications),
-    [ {"pa",P} || P <- Paths].
 
 erl_smp_arg() ->
     [{"smp", "enabled"}].
@@ -371,24 +400,18 @@ erl_attach_arg(_AppName) ->
 erl_heart_arg() ->
     [].
 
-make_args(start, AppName) ->
+make_args(start, AppName, _Rel) ->
     erl_node_arg() ++
-	erl_cookie_arg() ++
-	erl_config_arg(AppName) ++
-	erl_path_arg() ++
 	erl_heart_arg() ++
 	erl_smp_arg() ++
 	erl_start_arg(AppName);
-make_args(stop, AppName) ->
-	erl_cookie_arg() ++
+make_args(stop, AppName, _Rel) ->
 	erl_hidden_arg() ++
 	erl_stop_arg(AppName);
-make_args(status, AppName) ->
-	erl_cookie_arg() ++
+make_args(status, AppName, _Rel) ->
 	erl_hidden_arg() ++
 	erl_status_arg(AppName);
-make_args(attach, AppName) ->
-	erl_cookie_arg() ++
+make_args(attach, AppName, _Rel) ->
 	erl_hidden_arg() ++
 	erl_attach_arg(AppName).
 %%
@@ -415,10 +438,17 @@ emit_args_file(File, Args) ->
 
 
 %% Generate the start command
-shell_start_command(AppName) ->
+shell_start_command(AppName,Rel) ->
     User = os:getenv("USER"),
-    Start = erl_args(AppName, start, " -detached"),
-    HomeDir = filename:join(["/"|?VAR]++[AppName]),
+    Flags0 =
+	case erl_config_arg(AppName) of
+	    "" -> "";
+	    DstConfig ->
+		" -config "++filename:join("$ETC", DstConfig)
+	end,
+    Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
+    Start = erl_args(AppName, start, Flags1++" -detached", Rel),
+    HomeDir = "$VAR", %% filename:join(["/"|?VAR]++[AppName]),
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
@@ -428,15 +458,40 @@ shell_start_command(AppName) ->
       {r,["else"]},
       {r,[?TAB, "(cd ", HomeDir, "; ",
 	  "export ERL_CRASH_DUMP=/dev/null; ",
+	  Start," > /dev/null 2>&1", ")"]},
+      {r,["fi"]}
+     ]}.
+
+%% Generate the interactive command
+shell_interactive_command(AppName,Rel) ->
+    User = os:getenv("USER"),
+    Flags0 = 
+	case erl_config_arg(AppName) of
+	    "" -> "";
+	    DstConfig ->
+		" -config "++filename:join("$ETC", DstConfig)
+	end,
+    Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
+    HomeDir = "$VAR", %% filename:join(["/"|?VAR]++[AppName]),
+    Start = erl_args(AppName, start, Flags0, Rel),
+    {script,
+     [
+      {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
+      {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
+	  %% "export ERL_CRASH_DUMP=/dev/null; ",
+	  Start, ")", ?Q ]},
+      {r,["else"]},
+      {r,[?TAB, "(cd ", HomeDir, "; ",
+	  %% "export ERL_CRASH_DUMP=/dev/null; ",
 	  Start, ")"]},
       {r,["fi"]}
      ]}.
 
 %% Generate the stop command
-shell_stop_command(AppName) ->
+shell_stop_command(AppName,Rel) ->
     User = os:getenv("USER"),
     NodeArg = client_node_arg(),
-    Stop = erl_args(AppName, stop, NodeArg ++ " -noinput"),
+    Stop = erl_args(AppName, stop, NodeArg ++ " -noinput", Rel),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -447,10 +502,10 @@ shell_stop_command(AppName) ->
      ]}.
 
 %% Generate the attach command
-shell_attach_command(AppName) ->
+shell_attach_command(AppName,Rel) ->
     User = os:getenv("USER"),
     NodeArg = client_node_arg(),
-    Attach = erl_args(AppName, attach, NodeArg),
+    Attach = erl_args(AppName, attach, NodeArg, Rel),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -461,10 +516,10 @@ shell_attach_command(AppName) ->
      ]}.
 
 %% Generate the status command
-shell_status_command(AppName) ->
+shell_status_command(AppName,Rel) ->
     User = os:getenv("USER"),
     NodeArg = client_node_arg(),
-    Status = erl_args(AppName, status,  NodeArg ++ " -noinput"),
+    Status = erl_args(AppName, status,  NodeArg ++ " -noinput", Rel),
     {script,
      [
       {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
@@ -474,16 +529,15 @@ shell_status_command(AppName) ->
       {r, ["fi"]}
      ]}.
 
-erl_args(AppName, Type, Flags) ->
-    Args = init:get_arguments(),
-    Name = proplists:get_value(progname, Args, "erl"),
-    Executable = os:find_executable(Name),
-    {ok,_Wd} = file:get_cwd(),
-    ArgsFilePath = ?ETC++[AppName,to_string(Type)++".args"],
-    ArgsFileName = filename:join(ArgsFilePath),
-    emit_args_file(ArgsFileName, make_args(Type, AppName)),
-    Executable ++ Flags ++ " -args_file " ++ 
-	filename:join(["/" | ArgsFilePath]).
+erl_args(AppName, Type, Flags, Rel) ->
+    %% Args = init:get_arguments(),
+    %% Name = proplists:get_value(progname, Args, "erl"),
+    %% Executable = os:find_executable(Name),
+    %% {ok,_Wd} = file:get_cwd(),
+    FileName = to_string(Type)++".args",
+    ArgsFileName = filename:join(?ETC++[AppName,FileName]),
+    emit_args_file(ArgsFileName, make_args(Type, AppName, Rel)),
+    "$ERL " ++ Flags ++ " -args_file " ++ filename:join("$ETC",FileName).
 
 %%
 %% Combine script, newline and tabs
@@ -568,12 +622,6 @@ system_applications([AppVsn|Apps], LibDir, Acc) ->
 system_applications([],_LibDir,Acc) ->
     Acc.
 %%
-%% if release is wanted
-%% 1 - copy non-otp applications to /var/erlang/<app>/lib/..
-%% 2 - copy also otp applications to /var/erlang/<app>/lib/..
-%% 3 - copy erts to /var/erlang/<app>/erts-<vsn> and
-%%     scripts to /var/erlang/<app>/bin
-%%
 %% Copy erts data
 %%   erts-<vsn>/bin
 %%       beam | beam.smp, child_setup, epmd, heart, inet_gethost,
@@ -598,28 +646,6 @@ copy_erlang_erts(AppName) ->
       end, [Beam, "child_setup", "epmd", "heart", "inet_gethost",
 	    "erlexec", "escript"]).
 
-copy_erlang_bin(AppName) ->
-    Args = init:get_arguments(),
-    [Root] = proplists:get_value(root, Args),
-    SrcDir = filename:join(Root, "bin"),
-    DstDir = filename:join(?VAR ++ [AppName, "bin"]),
-    ErtsVsn = "erts-"++erlang:system_info(version),
-    ErtsBinDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
-    make_dir(DstDir),
-
-    %% copy scripts (fixme patch 'erl') change ROOTDIR while coping erl script
-    lists:foreach(
-      fun(File) ->
-	      copy_with_mode(filename:join([SrcDir, File]),
-			     filename:join([DstDir, File]))
-      end, ["erl", "erlc", "escript", "start.boot", "start.script" ]),
-    %% set symlinks (fixme make relative?)
-    lists:foreach(
-      fun(File) ->
-	      file:make_symlink(
-		filename:join(["/",ErtsBinDir,File]),
-		filename:join([DstDir, File]))
-      end, ["epmd"]).
 
 user_applications() ->
     SysApps = system_applications(),
@@ -674,24 +700,97 @@ copy_otp_applications(AppName) ->
 	      copy_dir(Src, Dst)
       end, otp_applications()).
 
-%% Create relase dir for current version "Rel"
+
 make_release_dir(AppName, Rel) ->
     RelDir = filename:join(?VAR ++ [AppName, "rel", Rel]),
-    make_dir(RelDir),
+    RelLibDir = filename:join(RelDir, "lib"),
+    make_dir(RelLibDir),
+
+    %% create a patches directory that is ( always search first )
+    make_dir(filename:join([RelLibDir, "PATCHES", "ebin"]),
+    
+    %% symlink otp applications - keep version to make start script happy
     lists:foreach(
-      fun({App,_Descr,Vsn}) ->
-	      App1 = to_string(App),
-	      Exist = filename:join(["/",?VAR++[AppName,"lib",App1++"-"++Vsn]]),
-	      New = filename:join(?VAR ++ [AppName,"rel",Rel,App1]),
-	      ok = file:make_symlink(Exist, New)
+      fun({AppI,_Descr,Vsn}) ->
+	      App = to_string(AppI),
+	      Exist =
+		  if Rel =:= "soft" ->
+			  code:lib_dir(App);
+		     true ->
+			  filename:join(["..","..","..","lib",App++"-"++Vsn])
+		  end,
+	      New = filename:join(RelLibDir,App++"-"++Vsn),
+	      ok = symlink(Exist, New)
       end, otp_applications()),
+
+    %% symlink user applications
     lists:foreach(
-      fun({App,_Descr,Vsn}) ->
-	      App1 = to_string(App),
-	      Exist = filename:join(["/",?VAR++[AppName,"lib",App1++"-"++Vsn]]),
-	      New = filename:join(?VAR ++ [AppName,"rel",Rel,App1]),
-	      ok = file:make_symlink(Exist, New)
-      end, user_applications()).
+      fun({AppI,_Descr,Vsn}) ->
+	      App = to_string(AppI),
+	      Exist =
+		  if Rel =:= "soft" ->
+			  code:lib_dir(App);
+		     true ->
+			  filename:join(["..","..","..","lib",App++"-"++Vsn])
+		  end,
+	      New = filename:join(RelLibDir,App),
+	      ok = symlink(Exist, New)
+      end, user_applications()),
+
+    %% symlink erts directory
+    ErtsVsn = "erts-"++erlang:system_info(version),
+    Args = init:get_arguments(),
+    [Root] = proplists:get_value(root, Args),
+    Exist = if Rel =:= "soft" ->
+		    filename:join(Root, ErtsVsn);
+	       true ->
+		    filename:join(["..", "..", ErtsVsn])
+	    end,
+    ok = symlink(Exist, filename:join(RelDir, "erts")),
+
+    BinDir = filename:join(RelDir, "bin"),
+    make_dir(BinDir),
+
+    SrcDir = filename:join(Root, "bin"),
+    %% copy scripts
+    lists:foreach(
+      fun(File) ->
+	      copy_with_mode(filename:join([SrcDir, File]),
+			     filename:join([BinDir, File]))
+      end, ["erlc", "escript", "start.boot", "start.script" ]),
+
+    %% copy "erl" and patch location
+    %% ROOTDIR=filename:join("/", RelDir),
+    ROOTDIR="$THISDIR",
+    THISDIR="THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/..\" \\&\\& pwd)`",
+    copy_replace(filename:join(SrcDir, "erl"),
+		 filename:join(BinDir, "erl"),
+		 [{"ROOTDIR=\".*\"", THISDIR++"\n"++"ROOTDIR=\""++ROOTDIR++"\"",[]},
+		  {"BINDIR=.*", "BINDIR=$ROOTDIR/erts/bin", []}
+		 ]),
+    %% make symlinks
+    lists:foreach(
+      fun(File) ->
+	      ok = symlink(
+		     filename:join(["..","erts","bin","epmd"]),
+		     filename:join([BinDir, File]))
+      end, ["epmd"]),
+    ok.
+
+%% create symlinks, or check that they are equal if they already exist
+symlink(Exist, New) ->
+    case file:make_symlink(Exist, New) of
+	ok -> ok;
+	{error,eexist} ->
+	    case file:read_link(New) of
+		{ok, Exist} -> ok;
+		Error -> Error
+	    end;
+	Error -> Error
+    end.
+		    
+	    
+    
 
 copy_dir(Src, Dst) ->
     make_dir(Dst),
@@ -726,3 +825,44 @@ copy_with_mode(Src, Dst) ->
     io:format("copied file ~s to ~s [~w bytes]\n", [Src, Dst, _Size]),
     {ok,Info} = file:read_file_info(Src),
     file:change_mode(Dst, Info#file_info.mode).
+
+%% Copy Src to Dst line by line and do regular expression replace 
+%% while doing it.
+copy_replace(Src, Dst, ReplaceList) ->
+    {ok,S} = file:open(Src, [read, raw, {read_ahead, 1024}]),
+    {ok,D} = file:open(Dst, [write, raw]),
+    try copy_replace_(S, D, ReplaceList) of
+	ok ->
+	    ok;
+	Error ->
+	    Error
+    catch
+	error:Reason ->
+	    {error, Reason}
+    after
+	file:close(S),
+	file:close(D)
+    end,
+    {ok,Info} = file:read_file_info(Src),
+    file:change_mode(Dst, Info#file_info.mode).
+    
+
+copy_replace_(S, D, ReplaceList) ->
+    case file:read_line(S) of
+	{ok,Data} ->
+	    Data1 = replace_data(Data, ReplaceList),
+	    file:write(D, Data1),
+	    copy_replace_(S, D, ReplaceList);
+	eof ->
+	    ok;
+	Error ->
+	    Error
+    end.
+
+replace_data(Data, [{RE,Replacement,Options}|REs]) ->
+    case re:replace(Data, RE, Replacement, Options) of
+	Data -> replace_data(Data, REs);
+	Data1 -> replace_data(iolist_to_binary(Data1), REs)
+    end;
+replace_data(Data, []) ->
+    Data.
