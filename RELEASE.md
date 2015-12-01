@@ -22,7 +22,7 @@ Erts are copied here:
 	1.0/
 	   erts -> ../../erts-5.9.1
 	   lib/
-		patches  ( local patches is a real directory )
+		PATCHES  ( local patches is a real directory )
 		stdlib-1.18.1 -> ../../lib/stdlib-1.18.1
 		kernel-2.15.1 -> ../../lib/kernel-2.15.1
 		myapp  -> ../../lib/myapp-1.0
@@ -37,7 +37,7 @@ Erts are copied here:
 	2.0/
 	   erts -> ../erts-7.0
 	   lib/
-		patches ( local patches is a real directory )
+		PATCHES ( local patches is a real directory )
 		stdlib-2.5 -> ../../lib/stdlib-2.5/
 		kernel-4.0 -> ../../lib/kernel-4.0/
 		myapp  -> ../../lib/myapp-2.0
@@ -70,11 +70,12 @@ No applications are copied, symbolic links are setup:
 
 ## Cookies
 
-To be able to keep cookie safe, the cookie is stored at
+To be able to keep cookies safe, cookies are in a file at location:
 
     etc/erlang/<app>/erlang.cookie
 
-in order to make this work HOME is also set to this directory
+in order to make this work, the HOME environment variable is also set to
+this directory.
 
 ## Log files
 

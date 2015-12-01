@@ -6,7 +6,7 @@ found running.
 It is so simple to create server scripts this way, example
 
     $ erl -sname foo -s foo -config foo.config
-    > servator:make(foo).
+    > servator:make_soft_release(foo).
     > ...
     > halt().
     
@@ -14,23 +14,22 @@ It is so simple to create server scripts this way, example
     $ mv var/erlang/foo /var/erlang/foo
     $ # maybe edit /etc/erlang/foo.config to reflect the new home
 
-The file layout created ( linux & mac ) is currently 
+The soft release create a release structure but will use symbolic links
+to refer to the libraries used.
 
-    /etc/erlang/<app>               ( config & script directory )
-    /etc/erlang/<app>/start.args
-    /etc/erlang/<app>/stop.args
-    /etc/erlang/<app>/status.args
-    /etc/erlang/<app>/attach.args
-    /etc/erlang/<app>/<app>.run
-    /etc/erlang/<app>/org.erlang.<app>.plist  ( max os x launch ctl file )
-    /etc/erlang/<app>/<config>     ( applications config )
+    $ erl -sname foo -s foo -config foo.config
+    > servator:make_release(foo, "1.0").
+    > ...
+    > halt().
+    
+    $ mv etc/erlang/foo /etc/erlang/foo
+    $ mv var/erlang/foo /var/erlang/foo
+    $ # maybe edit /etc/erlang/foo.config to reflect the new home
 
+When creating a release all data is copied into a release structure
+that can be use standalone.
 
-Log files and state information is stored here
-
-    /var/erlang/<app>              ( home direcory for app )
-    /var/erlang/app/log            ( log files )
-    /var/erlang/app/rel/...        ( for releases ? )
+More info about the release structure is found in RELEASE.md
 
 ## Commands
 
@@ -52,7 +51,15 @@ To get current status
 
     /etc/erlang/<app>/<app>.run status
 
-will report 'down' or 'up'
+will report 'down', 'up' or custom status if the function 
+<app>:status() is implemented and generate some status output 
+( safest is to use erlang:display to get some output )
+
+Start in interactive mode
+
+    /etc/erlang/<app>/<app>.run interactive
+
+To start a node in "normal" mode can be nice when debuging.
 
 ## Linux init.d
 
