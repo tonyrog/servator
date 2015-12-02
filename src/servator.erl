@@ -10,6 +10,7 @@
 -export([system_applications/0]).
 -export([user_applications/0]).
 -export([get_started_applications/0]).
+-export([get_started_args/0]).
 
 -export([copy_erlang_erts/1]).
 -export([copy_user_applications/1]).
@@ -365,16 +366,26 @@ erl_config_arg(AppName) ->
     end.
 
 erl_smp_arg() ->
-    [{"smp", "enabled"}].
+    case erlang:system_info(smp_support) of
+	true -> [{"smp", "enabled"}];
+	false -> []
+    end.
 
 %%
 %% here we select either:
+%%     -s M | -s M F | -s M F A1 .. An |
 %%     -s AppName
 %% or
-%%     -eval "application:ensure_all_started(AppName)"
+%%     -eval "application:ensure_all_started(AppName)"  (R18)
 %%
 erl_start_arg(AppName) ->
-    [{"s", AppName}].
+    case get_started_args() of
+	[] ->
+	    [{"s", AppName}];  %% fallback
+	Args ->
+	    [{"s", string:join([to_string(A) || A <- S], " ")} ||
+		S <- Args ]
+    end.
 
 erl_stop_arg(_AppName) ->
     NodeName = atom_to_list(node()),
@@ -586,6 +597,35 @@ get_started_applications() ->
     SysApps = system_applications(),
     filter_applications(Apps -- SysApps).
 
+%% magic to get -s flags from init process (may work sometimes :-)
+get_started_args() ->
+    {backtrace,Backtrace} = erlang:process_info(whereis(init), backtrace),
+    Lines = binary:split(Backtrace, <<"\n">>, [global]),
+    extract_(Lines).
+
+extract_([<<"y(0)", TermData/binary>>|_Lines]) ->
+    {ok,Ts,_} = erl_scan:string(binary_to_list(TermData)),
+    Ts1 = translate_pids(Ts),
+    {ok,[Term]} = erl_parse:parse_exprs(Ts1++[{dot,1}]),
+    State = erl_parse:normalise(Term),
+    Start = element(4, State),
+    Start;
+extract_([_Line|Lines]) ->
+    extract_(Lines);
+extract_([]) ->
+    [].
+
+%% translate scanned pids to placeholders
+%% translate <x.y.z> (as tokens) into dummy 'pid'
+translate_pids([{'<',L},{float,_,_PidAsFloat},{'.',_},{integer,_,_},{'>',_} |
+		Ts]) ->
+    [{atom,L,pid} | translate_pids(Ts)];
+translate_pids([T|Ts]) ->
+    [T|translate_pids(Ts)];
+translate_pids([]) ->
+    [].
+    
+
 filter_applications(As) ->
     %% FIXME: check if fnotify was started from .erlang!
     As -- [servator,fnotify,error_emacs].
@@ -650,7 +690,10 @@ copy_config(AppName) ->
 %%  read root from init:get_arguments()
 %%
 copy_erlang_erts(AppName) ->
-    Beam = "beam.smp",
+    Beam = case erlang:system_info(smp_support) of
+	       true -> "beam.smp";
+	       false -> "beam"
+	   end,
     Args = init:get_arguments(),
     [Root] = proplists:get_value(root, Args),
     ErtsVsn = "erts-"++erlang:system_info(version),
