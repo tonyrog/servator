@@ -92,3 +92,12 @@ On 10.x before 10.10 ( still works in 10.10! )
 Print current status (10.10 ?)
 
     launchctl print system/org.erlang.xylan
+
+
+10.11 (El Capitan)
+
+In 10.11 it is no longer possible to install stuff under /System/Library/LaunchDaemons so instead /Library/LaunchDaemons is used
+
+
+    sudo cp /etc/erlang/<app>/org.erlang.<app>.plist /Library/LaunchDaemons/
+    sudo launchctl load -w /Library/LaunchDaemons/org.erlang.<app>.plist
