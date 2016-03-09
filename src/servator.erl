@@ -605,7 +605,7 @@ get_started_args() ->
 
 extract_([<<"y(0)", TermData/binary>>|_Lines]) ->
     {ok,Ts,_} = erl_scan:string(binary_to_list(TermData)),
-    Ts1 = translate_pids(Ts),
+    Ts1 = translate_termdata(Ts),
     {ok,[Term]} = erl_parse:parse_exprs(Ts1++[{dot,1}]),
     State = erl_parse:normalise(Term),
     Start = element(4, State),
@@ -617,12 +617,15 @@ extract_([]) ->
 
 %% translate scanned pids to placeholders
 %% translate <x.y.z> (as tokens) into dummy 'pid'
-translate_pids([{'<',L},{float,_,_PidAsFloat},{'.',_},{integer,_,_},{'>',_} |
-		Ts]) ->
-    [{atom,L,pid} | translate_pids(Ts)];
-translate_pids([T|Ts]) ->
-    [T|translate_pids(Ts)];
-translate_pids([]) ->
+translate_termdata([{'<',L},{float,_,_PidAsFloat},
+		    {'.',_},{integer,_,_},{'>',_} |Ts]) ->
+    [{atom,L,pid} | translate_termdata(Ts)];
+%% translate <<ddd bytes>> into a empty binary
+translate_termdata([{'<<',L},{integer,_,_DDD},{atom,_,bytes},{'>>',_}|Ts]) ->
+    [{'<<',L},{'>>',L} | translate_termdata(Ts)];
+translate_termdata([T|Ts]) ->
+    [T|translate_termdata(Ts)];
+translate_termdata([]) ->
     [].
     
 
