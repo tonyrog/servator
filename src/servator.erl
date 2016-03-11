@@ -830,7 +830,7 @@ make_release_dir(AppName, Rel) ->
     THISDIR="THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/..\" \\&\\& pwd)`",
     copy_replace(filename:join(SrcDir, "erl"),
 		 filename:join(BinDir, "erl"),
-		 [{"ROOTDIR=\".*\"", THISDIR++"\n"++"ROOTDIR=\""++ROOTDIR++"\"",[]},
+		 [{"ROOTDIR=.*", THISDIR++"\n"++"ROOTDIR=\""++ROOTDIR++"\"",[]},
 		  {"BINDIR=.*", "BINDIR=$ROOTDIR/erts/bin", []}
 		 ]),
     %% make symlinks
