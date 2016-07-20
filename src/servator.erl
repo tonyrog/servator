@@ -24,6 +24,9 @@
 -export([copy_replace/3]).
 -export([make_executable/1]).
 
+%% debug
+-export([make_args/3]).
+
 -compile(export_all).
 
 -include_lib("kernel/include/file.hrl").
@@ -35,12 +38,15 @@
 -define(ETC, ["etc", "erlang"]).
 -define(VAR, ["var", "erlang"]).
 
+%%Defaults
+-define(HEART_BEAT_TIMEOUT, 20). %% ?? FIXME ??
+
 %% -define(dbg(F,A), ok).
 -define(dbg(F,A), io:format((F), (A))).
 %% Nice to set environment variables
-%% ERL_CRASH_DUMP=/dev/null
+%% ERL_CRASH_DUMP=/dev/null ?? FIXME Does not work ??
 %% Others found in runtime system:
-%% ERL_CRASH_DUMP_SECONDS
+%% ERL_CRASH_DUMP_SECONDS=0 No crash dump !!
 %% ERL_CRASH_DUMP_NICE
 %% ERL_NO_VFORK
 %% ERL_NO_KERNEL_POLL
@@ -174,8 +180,10 @@ osx_plist(AppName,Rel) ->
       {r, [?TAB,?TAB,"<dict>"]},
       {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
       {r, [?TAB,?TAB,?TAB,"<string>",EtcDir,"</string>"]},
-      {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP</key>"]},
-      {r, [?TAB,?TAB,?TAB,"<string>/dev/null</string>"]},
+%%    {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP</key>"]},
+%%    {r, [?TAB,?TAB,?TAB,"<string>/dev/null</string>"]},
+      {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP_SECONDS</key>"]},
+      {r, [?TAB,?TAB,?TAB,"<string>0</string>"]},   
 %%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
 %%    {r, [?TAB,?TAB,?TAB,"<string>/opt/local/lib:</string>"]},
       {r, [?TAB,?TAB,"</dict>"]},
@@ -414,12 +422,47 @@ erl_attach_arg(_AppName) ->
 %%
 %% Heart commands
 %% FIXME: set environment and setup heart
-erl_heart_arg() ->
-    [].
+erl_heart_arg(AppName) ->
+    case init:get_argument(heart) of
+	{ok, [""]} ->
+	    %% The return value I've seen so far
+	    erl_heart_arg_cont(AppName);
+	{ok, _Args} ->
+	    io:format("Warning, don't know how to handle heart ~p", [_Args]),
+	    erl_heart_arg_cont(AppName);
+	error ->
+	    []
+    end.
+
+erl_heart_arg_cont(AppName) ->
+    [{env, "HEART_COMMAND", 
+	  filename:join(["/"|?ETC] ++ [AppName] ++ 
+			    [to_string(AppName) ++ ".run"]) ++ 
+	  " start"}] 
+	++ 
+	erl_heart_beat_timeout() 
+	++ 
+	[{heart,""}].
+
+erl_heart_beat_timeout() ->
+    case os:getenv("HEART_BEAT_TIMEOUT") of
+	false ->
+	    %% Use default 
+	    [{env, "HEART_BEAT_TIMEOUT", ?HEART_BEAT_TIMEOUT}];
+	HBT ->
+	    try list_to_integer(HBT) of
+		I ->
+		    [{env, "HEART_BEAT_TIMEOUT", I}]
+	    catch _:_ ->
+		    io:format("illegal heart_beat_timeout ~p", [HBT]),
+		    exit(failed)
+	    end
+    end.
+	
 
 make_args(start, AppName, _Rel) ->
     erl_node_arg() ++
-	erl_heart_arg() ++
+	erl_heart_arg(AppName) ++
 	erl_smp_arg() ++
 	erl_start_arg(AppName);
 make_args(stop, AppName, _Rel) ->
@@ -441,8 +484,14 @@ emit_args_file(File, Args) ->
 	    lists:foreach(
 	      fun({Opt,""}) ->
 		      io:format(Fd, "-~s ", [Opt]);
-		 ({Opt,Value}) ->
-		      io:format(Fd, "-~s \"~s\" ", [Opt,Value])
+		 ({Opt,Value}) when is_list(Value) ->
+		      io:format(Fd, "-~s \"~s\" ", [Opt,Value]);
+		 ({Opt,Value}) when is_integer(Value) ->
+		      io:format(Fd, "-~s ~w ", [Opt,Value]);
+		 ({env = Opt,Env,Value}) when is_integer(Value) ->
+		      io:format(Fd, "-~s ~s ~w ", [Opt,Env,Value]);
+		 ({env = Opt,Env,Value}) when is_list(Value) ->
+		      io:format(Fd, "-~s ~s \"~s\" ", [Opt,Env,Value])
 	      end, Args),
 	    io:format(Fd, "\n", []),
 	    file:close(Fd),
@@ -470,11 +519,13 @@ shell_start_command(AppName,Rel) ->
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
       {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
-	  "export ERL_CRASH_DUMP=/dev/null; ",
+	  %% "export ERL_CRASH_DUMP=/dev/null; ",
+	  "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start, " > /dev/null 2>&1", ")", ?Q ]},
       {r,["else"]},
       {r,[?TAB, "(cd ", HomeDir, "; ",
-	  "export ERL_CRASH_DUMP=/dev/null; ",
+	  %%"export ERL_CRASH_DUMP=/dev/null; ",
+	  "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start," > /dev/null 2>&1", ")"]},
       {r,["fi"]}
      ]}.
@@ -496,10 +547,12 @@ shell_interactive_command(AppName,Rel) ->
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
       {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
 	  %% "export ERL_CRASH_DUMP=/dev/null; ",
+	  %% "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start, ")", ?Q ]},
       {r,["else"]},
       {r,[?TAB, "(cd ", HomeDir, "; ",
 	  %% "export ERL_CRASH_DUMP=/dev/null; ",
+	  %% "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start, ")"]},
       {r,["fi"]}
      ]}.
