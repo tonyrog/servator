@@ -113,6 +113,9 @@ make_scripts(AppName,Rel0) ->
 		     {r,["#!/bin/bash\n"]},
 		     {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/../../..\" && pwd)`",?NL]},
 		     {r,["PREFIX=$THISDIR",?NL]},  %% maybe set to . or whatever
+		     {r,["if [ \"$PREFIX\" == \"/\" ]; then"]},
+		     {r,["    PREFIX=\"\""]},
+		     {r,["fi"]},
 		     {r,["VSN=",Rel,?NL]},
 		     {r,["VAR=","$PREFIX","/",Var,?NL]},
 		     {r,["ETC=","$PREFIX","/",Etc,?NL]},
