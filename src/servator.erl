@@ -32,6 +32,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -define(Q, $").
+-define(BSLASH, $\\).
 -define(NL, "\n").
 -define(TAB,  "  ").
 
@@ -119,9 +120,9 @@ make_scripts(AppName,Rel0) ->
 		     {r,["#!/bin/bash\n"]},
 		     {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/../../..\" && pwd)`",?NL]},
 		     {r,["PREFIX=$THISDIR",?NL]},  %% maybe set to . or whatever
-		     {r,["if [ \"$PREFIX\" == \"/\" ]; then"]},
-		     {r,["    PREFIX=\"\""]},
-		     {r,["fi"]},
+		     {r,["if [ \"$PREFIX\" == \"/\" ]; then",?NL]},
+		     {r,["    PREFIX=\"\"",?NL]},
+		     {r,["fi",?NL]},
 		     {r,["VSN=",Rel,?NL]},
 		     {r,["VAR=","$PREFIX","/",Var,?NL]},
 		     {r,["ETC=","$PREFIX","/",Etc,?NL]},
@@ -183,10 +184,8 @@ osx_plist(AppName,Rel) ->
       {r, [?TAB,?TAB,"<dict>"]},
       {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
       {r, [?TAB,?TAB,?TAB,"<string>",EtcDir,"</string>"]},
-%%    {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP</key>"]},
-%%    {r, [?TAB,?TAB,?TAB,"<string>/dev/null</string>"]},
       {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP_SECONDS</key>"]},
-      {r, [?TAB,?TAB,?TAB,"<string>0</string>"]},   
+      {r, [?TAB,?TAB,?TAB,"<string>0</string>"]},
 %%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
 %%    {r, [?TAB,?TAB,?TAB,"<string>/opt/local/lib:</string>"]},
       {r, [?TAB,?TAB,"</dict>"]},
@@ -424,7 +423,7 @@ erl_attach_arg(_AppName) ->
 
 %%
 %% Heart commands
-%% FIXME: set environment and setup heart
+%%
 erl_heart_arg(AppName) ->
     case init:get_argument(heart) of
 	{ok, [""]} ->
@@ -465,7 +464,6 @@ erl_heart_beat_timeout() ->
 
 make_args(start, AppName, _Rel) ->
     erl_node_arg() ++
-	erl_heart_arg(AppName) ++
 	erl_smp_arg() ++
 	erl_start_arg(AppName);
 make_args(stop, AppName, _Rel) ->
@@ -484,19 +482,7 @@ make_args(attach, AppName, _Rel) ->
 emit_args_file(File, Args) ->
     case file:open(File, [write]) of
 	{ok,Fd} ->
-	    lists:foreach(
-	      fun({Opt,""}) ->
-		      io:format(Fd, "-~s ", [Opt]);
-		 ({Opt,Value}) when is_list(Value) ->
-		      io:format(Fd, "-~s \"~s\" ", [Opt,Value]);
-		 ({Opt,Value}) when is_integer(Value) ->
-		      io:format(Fd, "-~s ~w ", [Opt,Value]);
-		 ({env = Opt,Env,Value}) when is_integer(Value) ->
-		      io:format(Fd, "-~s ~s ~w ", [Opt,Env,Value]);
-		 ({env = Opt,Env,Value}) when is_list(Value) ->
-		      io:format(Fd, "-~s ~s \"~s\" ", [Opt,Env,Value])
-	      end, Args),
-	    io:format(Fd, "\n", []),
+	    io:format(Fd, "~s\n", [format_args(Args)]),
 	    file:close(Fd),
 	    ?dbg("wrote file: ~s\n", [File]),
 	    ok;
@@ -505,6 +491,19 @@ emit_args_file(File, Args) ->
 	    Error
     end.
 
+format_args(Args) ->
+    lists:map(
+      fun({Opt,""}) ->
+	      io_lib:format("-~s ", [Opt]);
+	 ({Opt,Value}) when is_list(Value) ->
+	      io_lib:format("-~s \"~s\" ", [Opt,Value]);
+	 ({Opt,Value}) when is_integer(Value) ->
+	      io_lib:format("-~s ~w ", [Opt,Value]);
+	 ({env,Env,Value}) when is_integer(Value) ->
+	      io_lib:format("-env ~s ~w ", [Env,Value]);
+		({env,Env,Value}) when is_list(Value) ->
+	      io_lib:format("-env ~s \"~s\" ", [Env,Value])
+      end, Args).
 
 %% Generate the start command
 shell_start_command(AppName,Rel) ->
@@ -516,18 +515,17 @@ shell_start_command(AppName,Rel) ->
 		" -config "++filename:join("$ETC", DstConfig)
 	end,
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
-    Start = erl_args(AppName, start, Flags1++" -detached", Rel),
-    HomeDir = "$VAR", %% filename:join(["/"|?VAR]++[AppName]),
+    Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
+    Start = erl_args(AppName, start, Flags2++" -detached", Rel),
+    HomeDir = "$VAR",
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
       {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
-	  %% "export ERL_CRASH_DUMP=/dev/null; ",
 	  "export ERL_CRASH_DUMP_SECONDS=0; ",
-	  Start, " > /dev/null 2>&1", ")", ?Q ]},
+	  backquote(Start), " > /dev/null 2>&1", ")", ?Q ]},
       {r,["else"]},
       {r,[?TAB, "(cd ", HomeDir, "; ",
-	  %%"export ERL_CRASH_DUMP=/dev/null; ",
 	  "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start," > /dev/null 2>&1", ")"]},
       {r,["fi"]}
@@ -543,19 +541,15 @@ shell_interactive_command(AppName,Rel) ->
 		" -config "++filename:join("$ETC", DstConfig)
 	end,
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
-    HomeDir = "$VAR", %% filename:join(["/"|?VAR]++[AppName]),
+    HomeDir = "$VAR",
     Start = erl_args(AppName, start, Flags1, Rel),
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
       {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
-	  %% "export ERL_CRASH_DUMP=/dev/null; ",
-	  %% "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start, ")", ?Q ]},
       {r,["else"]},
       {r,[?TAB, "(cd ", HomeDir, "; ",
-	  %% "export ERL_CRASH_DUMP=/dev/null; ",
-	  %% "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start, ")"]},
       {r,["fi"]}
      ]}.
@@ -1021,3 +1015,10 @@ make_dir_([Dir|Ds], Path) ->
     end;
 make_dir_([], _Path) ->
     ok.
+
+backquote([?Q|Cs]) ->
+    [?BSLASH,?Q|backquote(Cs)];
+backquote([C|Cs]) ->
+    [C|backquote(Cs)];
+backquote([]) ->
+    [].
