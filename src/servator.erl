@@ -5,7 +5,7 @@
 
 -export([make/1]).
 -export([make_soft_release/1]).
--export([make_release/2]).
+-export([make_release/1, make_release/2]).
 
 -export([system_applications/0]).
 -export([user_applications/0]).
@@ -64,6 +64,11 @@ make_soft_release(AppName0) ->
     make(AppName0,Rel),
     make_release_dir(AppName0, Rel).
 
+make_release(AppName) ->
+    application:load(AppName),
+    {ok,Rel} = application:get_key(AppName, vsn),
+    make_release(AppName, Rel).
+
 make_release(AppName0, Rel0) ->
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
@@ -86,9 +91,9 @@ make_scripts(AppName,Rel0) ->
     Rel = to_string(Rel0),
     Etc = filename:join(?ETC ++ [AppName]),
     Var = filename:join(?VAR ++ [AppName]),
-    ok = make_dir(Etc),
+    ok = make_dir(filename:join(Etc,Rel)),
     ok = make_dir(Var),
-    ok = copy_config(AppName),
+    ok = copy_config(AppName,Rel),
     Start = shell_start_command(AppName,Rel),
     Interactive = shell_interactive_command(AppName,Rel),
     Stop  = shell_stop_command(AppName,Rel),
@@ -135,7 +140,7 @@ make_scripts(AppName,Rel0) ->
 						"bin","erl"]),?NL]}
 		     end
 		     | Script2]}),
-    Run = filename:join([Etc, to_string(AppName)++".run"]),
+    Run = filename:join([Etc,Rel,to_string(AppName)++".run"]),
     ok = file:write_file(Run, list_to_binary(Script3)),
     ?dbg("wrote file: ~s\n", [Run]),
     ok = make_executable(Run).
@@ -149,7 +154,7 @@ make_osx_plist(AppName,Rel) ->
     Script2 = nl(Script1),
     Script3 = flat(Script2),
     FileName = "org.erlang."++to_string(AppName)++".plist",
-    PList = filename:join(?ETC++[AppName,FileName]),
+    PList = filename:join(?ETC++[AppName,Rel,FileName]),
     ok = file:write_file(PList, list_to_binary(Script3)),
     ?dbg("wrote file: ~s\n", [PList]),
     ok.
@@ -166,8 +171,8 @@ osx_plist(AppName,Rel) ->
     RelDir = filename:join([Var,"rel",Rel]),
 
     PatchDir = filename:join([RelDir,"lib","PATCHES","ebin"]),
-    ArgsFilePath = filename:join(EtcDir,"start.args"),
-    ConfigPath = filename:join(EtcDir,AppName++".config"),
+    ArgsFilePath = filename:join([EtcDir,Rel,"start.args"]),
+    ConfigPath = filename:join([EtcDir,AppName++".config"]),
     ErlPath  = filename:join([RelDir,"bin","erl"]),
     User = os:getenv("USER"),
 
@@ -602,9 +607,10 @@ erl_args(AppName, Type, Flags, Rel) ->
     %% Executable = os:find_executable(Name),
     %% {ok,_Wd} = file:get_cwd(),
     FileName = to_string(Type)++".args",
-    ArgsFileName = filename:join(?ETC++[AppName,FileName]),
+    ArgsFileName = filename:join(?ETC++[AppName,Rel,FileName]),
     emit_args_file(ArgsFileName, make_args(Type, AppName, Rel)),
-    "$ERL " ++ Flags ++ " -args_file " ++ filename:join("$ETC",FileName).
+    "$ERL " ++ Flags ++ " -args_file " ++
+	filename:join(["$ETC","$VSN",FileName]).
 
 %%
 %% Combine script, newline and tabs
@@ -703,10 +709,10 @@ system_applications([AppVsn|Apps], LibDir, Acc) ->
 system_applications([],_LibDir,Acc) ->
     Acc.
 
-copy_config(AppName) ->
+copy_config(AppName,Rel) ->
     Args = init:get_arguments(),
     case proplists:get_value(config, Args) of
-	undefined -> 
+	undefined ->
 	    "";
 	[SrcConfig0] ->
 	    SrcConfig = 
@@ -721,7 +727,7 @@ copy_config(AppName) ->
 			SrcConfig0
 		end,
 	    DstConfig = AppName ++ ".config",
-	    DstConfigPath = filename:join(?ETC++[AppName, DstConfig]),
+	    DstConfigPath = filename:join(?ETC++[AppName,Rel,DstConfig]),
 	    case file:read_file(SrcConfig) of
 		{ok,Bin} ->
 		    ok = file:write_file(DstConfigPath, Bin),
@@ -753,7 +759,6 @@ copy_erlang_erts(AppName) ->
     SrcDir = filename:join([Root, ErtsVsn, "bin"]),
     DstDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
     ok = make_dir(DstDir),
-
     lists:foreach(
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
@@ -820,7 +825,6 @@ make_release_dir(AppName, Rel) ->
     RelDir = filename:join(?VAR ++ [AppName, "rel", Rel]),
     RelLibDir = filename:join(RelDir, "lib"),
     ok = make_dir(RelLibDir),
-
     %% create a patches directory that is ( always search first )
     ok = make_dir(filename:join([RelLibDir, "PATCHES", "ebin"])),
     
