@@ -73,14 +73,14 @@ No applications are copied, symbolic links are setup:
 Configuration files are located under etc/erlang/<app>/<rel> for each
 release.
 
-   /etc/erlang/<app>/1.0
-     start.args
-     stop.args
-     attach.args
-     status.args
-	 <app>.config
-	 <app>.run
-	 org.erlang.<app>.plist
+    /etc/erlang/<app>/1.0
+      start.args
+      stop.args
+      attach.args
+      status.args
+	  <app>.config
+	  <app>.run
+	  org.erlang.<app>.plist
 
 If the <app>.config does not exist already it must be copied to
 /etc/erlang/<app>/<app>.config. And it need to be updated if changed
@@ -89,11 +89,11 @@ The run file also need to be copied inorder to switch to the correct
 version. Symbolic links are not always allowed so switch by copy is
 recommended.
 
-   cp /etc/erlang/<app>/1.1/<app>.run /etc/erlang/<app>/
+    cp /etc/erlang/<app>/1.1/<app>.run /etc/erlang/<app>/
 
 To switch back to an older version just do:
 
-   cp /etc/erlang/<app>/1.0/<app>.run /etc/erlang/<app>/
+    cp /etc/erlang/<app>/1.0/<app>.run /etc/erlang/<app>/
 
 Do not forget to backup the old config before, this could be done
 like this:
@@ -105,7 +105,6 @@ If a reverert to 1.0 is later needed then:
 
    cp /etc/erlang/<app>/1.0/<app>.config /etc/erlang/<app>/<app>.config
    cp /etc/erlang/<app>/1.0/<app>.run /etc/erlang/<app>/
-
 
 ## Cookies
 
