@@ -6,20 +6,20 @@
 All otp/user applications are copied, with version, to this location:
 
     var/erlang/<app>/lib/..
-	stdlib-1.0
-	stdlib-1.1
-	kernel-1.2
-	app-1.3
-	app-1.4 
-	...
+	  stdlib-1.0
+	  stdlib-1.1
+	  kernel-1.2
+	  app-1.3
+	  app-1.4 
+	  ...
 
-Erts are copied here:
+Erts is copied here:
     var/erlang/<app>/erts-vsn/..
-	erts-5.9.1
-	erts-7.0
+	  erts-5.9.1
+	  erts-7.0
 
     var/erlang/<app>/rel/..
-	1.0/
+	  1.0/
 	   erts -> ../../erts-5.9.1
 	   lib/
 		PATCHES  ( local patches is a real directory )
@@ -34,7 +34,7 @@ Erts are copied here:
 		start.boot
 		start.script
 		
-	2.0/
+	  2.0/
 	   erts -> ../erts-7.0
 	   lib/
 		PATCHES ( local patches is a real directory )
@@ -67,6 +67,45 @@ No applications are copied, symbolic links are setup:
 		escript
 		start.boot
 		start.script
+
+## Config files
+
+Configuration files are located under etc/erlang/<app>/<rel> for each
+release.
+
+   /etc/erlang/<app>/1.0
+     start.args
+     stop.args
+     attach.args
+     status.args
+	 <app>.config
+	 <app>.run
+	 org.erlang.<app>.plist
+
+If the <app>.config does not exist already it must be copied to
+/etc/erlang/<app>/<app>.config. And it need to be updated if changed
+during update, this is not done automatically.
+The run file also need to be copied inorder to switch to the correct
+version. Symbolic links are not always allowed so switch by copy is
+recommended.
+
+   cp /etc/erlang/<app>/1.1/<app>.run /etc/erlang/<app>/
+
+To switch back to an older version just do:
+
+   cp /etc/erlang/<app>/1.0/<app>.run /etc/erlang/<app>/
+
+Do not forget to backup the old config before, this could be done
+like this:
+
+    cp /etc/erlang/<app>/<app>.config  /etc/erlang/<app>/1.0/<app>.config
+    cp /etc/erlang/<app>/1.1/<app>.run /etc/erlang/<app>/
+
+If a reverert to 1.0 is later needed then:
+
+   cp /etc/erlang/<app>/1.0/<app>.config /etc/erlang/<app>/<app>.config
+   cp /etc/erlang/<app>/1.0/<app>.run /etc/erlang/<app>/
+
 
 ## Cookies
 

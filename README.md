@@ -12,19 +12,38 @@ It is so simple to create server scripts this way, example
     
     $ mv etc/erlang/foo /etc/erlang/foo
     $ mv var/erlang/foo /var/erlang/foo
-    $ # maybe edit /etc/erlang/foo.config to reflect the new home
+    $ # maybe edit /etc/erlang/foo/foo.config to reflect the new home
+
+    Or if this is an upgrade then
+
+    $ cp -RPn var/erlang/foo/* /var/erlang/foo/
+    $ cp -RPn etc/erlang/foo/* /etc/erlang/foo/
+    $ cp /etc/erlang/foo/<vsn>/foo.run /etc/erlang/foo/
+    $ # maybe update /etc/erlang/foo/foo.config 
 
 The soft release create a release structure but will use symbolic links
 to refer to the libraries used.
 
     $ erl -sname foo -s foo -config foo.config
     > servator:make_release(foo, "1.0").
+
+    Or if the correct version is in application env
+
+    > servator:make_release(foo).
+
     > ...
     > halt().
     
     $ mv etc/erlang/foo /etc/erlang/foo
     $ mv var/erlang/foo /var/erlang/foo
     $ # maybe edit /etc/erlang/foo.config to reflect the new home
+
+    Or if this is an upgrade then
+
+    $ cp -RPn var/erlang/foo/* /var/erlang/foo/
+    $ cp -RPn etc/erlang/foo/* /etc/erlang/foo/
+    $ cp /etc/erlang/foo/<vsn>/foo.run /etc/erlang/foo/
+    $ # maybe update /etc/erlang/foo/foo.config 
 
 When creating a release all data is copied into a release structure
 that can be use standalone.
