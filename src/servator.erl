@@ -12,9 +12,9 @@
 -export([get_started_applications/0]).
 -export([get_started_args/0]).
 
--export([copy_erlang_erts/1]).
--export([copy_user_applications/1]).
--export([copy_otp_applications/1]).
+-export([copy_erlang_erts/2]).
+-export([copy_user_applications/2]).
+-export([copy_otp_applications/2]).
 
 %% util
 -export([make_dir/1]).  %% recursive
@@ -39,6 +39,9 @@
 -define(ETC, ["etc", "erlang"]).
 -define(VAR, ["var", "erlang"]).
 
+-define(TARGET_ETC, ["/", "etc", "erlang"]).
+-define(TARGET_VAR, ["/", "var", "erlang"]).
+
 %%Defaults
 -define(HEART_BEAT_TIMEOUT, 20). %% ?? FIXME ??
 
@@ -62,7 +65,8 @@ make(AppName0) ->
 make_soft_release(AppName0) ->
     Rel = "soft",
     make(AppName0,Rel),
-    make_release_dir(AppName0, Rel).
+    AppName = to_string(AppName0),
+    make_release_dir(AppName, Rel).
 
 make_release(AppName) ->
     application:load(AppName),
@@ -73,24 +77,43 @@ make_release(AppName0, Rel0) ->
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
     make(AppName0,Rel0),
-    copy_erlang_erts(AppName),
-    copy_user_applications(AppName),
-    copy_otp_applications(AppName),
-    make_release_dir(AppName0, Rel).
+    copy_erlang_erts(AppName,Rel),
+    copy_user_applications(AppName,Rel),
+    copy_otp_applications(AppName,Rel),
+    make_release_dir(AppName, Rel).
 
 make(AppName0,Rel0) ->
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
     make_scripts(AppName,Rel),
     make_osx_plist(AppName,Rel),
-    make_init_d(AppName),
-    ok = make_cookie_file(AppName),
+    make_init_d(AppName,Rel),
+    ok = make_cookie_file(AppName,Rel),
+    ok = make_installation_script(AppName,Rel),
+    ok = make_release_file(AppName,Rel),
     ok.
 
-make_scripts(AppName,Rel0) ->
-    Rel = to_string(Rel0),
-    Etc = filename:join(?ETC ++ [AppName]),
-    Var = filename:join(?VAR ++ [AppName]),
+%% return the installation directory name
+%% under which every thing is created
+installation_root_dir(AppName,Rel) ->
+    AppName ++ "-" ++ Rel.
+
+installation_etc_dir(AppName,Rel) ->
+    installation_etc_dir(AppName,Rel,[]).
+installation_etc_dir(AppName,Rel,Path) ->
+    filename:join([installation_root_dir(AppName,Rel)|?ETC]++Path).
+
+installation_var_dir(AppName,Rel) ->
+    installation_var_dir(AppName,Rel,[]).
+installation_var_dir(AppName,Rel,Path) ->
+    filename:join([installation_root_dir(AppName,Rel)|?VAR]++Path).
+
+
+make_scripts(AppName,Rel) ->
+    RootVar = filename:join(?VAR ++ [AppName]),
+    RootEtc = filename:join(?ETC ++ [AppName]),
+    Etc = installation_etc_dir(AppName,Rel,[AppName]),
+    Var = installation_var_dir(AppName,Rel,[AppName]),
     ok = make_dir(filename:join(Etc,Rel)),
     ok = make_dir(Var),
     ok = copy_config(AppName,Rel),
@@ -129,9 +152,9 @@ make_scripts(AppName,Rel0) ->
 		     {r,["    PREFIX=\"\"",?NL]},
 		     {r,["fi",?NL]},
 		     {r,["VSN=",Rel,?NL]},
-		     {r,["VAR=","$PREFIX","/",Var,?NL]},
-		     {r,["ETC=","$PREFIX","/",Etc,?NL]},
-		     {r,["export HOME=","$PREFIX","/",Etc,?NL]},
+		     {r,["VAR=","$PREFIX","/",RootVar,?NL]},
+		     {r,["ETC=","$PREFIX","/",RootEtc,?NL]},
+		     {r,["export HOME=","$PREFIX","/",RootEtc,?NL]},
 		     if Rel =:= "" ->
 			     {r,["ERL=","erl",?NL]};
 			true ->
@@ -145,6 +168,118 @@ make_scripts(AppName,Rel0) ->
     ?dbg("wrote file: ~s\n", [Run]),
     ok = make_executable(Run).
 
+%%
+%% Create a release file just containing the release version
+%% Installed under etc/erlang/<app>/rel/release
+%%
+make_release_file(AppName,Rel) ->
+    ReleaseFile = installation_etc_dir(AppName,Rel,
+				       [AppName,Rel,"release"]),
+    file:write_file(ReleaseFile, list_to_binary(Rel)).
+
+%%
+%% Make an installation script
+%% Assume cd into the release structure where the INSTALL script is
+%% executed.
+%% The script looks something like
+%% 
+%% cp
+%%   -R [--recursive]      recursive                       [mac,linux]
+%%   -P [--no-dereference] never follow symbolic links     [mac,linux]
+%%   -n [--no-clobber]     do not overwrite existing files [mac,linux]
+%%   -p [--preserve=..]    preserve mode,ownership,timestamps [mac,linux]
+%%
+%% #!/bin/sh
+%%    cp -RPpn var/erlang/<app>/*  /var/erlang/<app>/
+%%    cp -RPpn etc/erlang/<app>/*  /etc/erlang/<app>/
+%%    if [ ! -f /etc/erlang/<app>/<app>.config ]; then
+%%       cp /etc/erlang/<app>/<rel>/<app>.config /etc/erlang/<app>/<app>.config
+%%    else
+%%       echo "servator: do not forget to update /etc/erlang/<app>/<app>.config"
+%%    fi
+%%    cp -p /etc/erlang/<app>/<rel>/<app>.run /etc/erlang/<app>/<app>.run
+%%    if [ -f /etc/erlang/<app>/release ]; then
+%%       OLD=`cat /etc/erlang/<app>/release`
+%%    fi
+%%    cp -p /etc/erlang/<app>/<rel>/release /etc/erlang/<app>/release
+%%
+
+make_installation_script(AppName, Rel) when 
+      is_list(AppName), is_list(Rel) ->
+    %% TARGET DIRECTORIES
+    %% /var/erlang/<app>
+    TargetVar = filename:join(?TARGET_VAR++[AppName]),
+    %% /var/erlang/<app>/rel/<rel>
+    TargetRelDir = filename:join([TargetVar,"rel",Rel]),
+    %% /var/erlang/<app>/rel/<rel>/lib
+    TargetRelLibDir = filename:join(TargetRelDir, "lib"),
+    %% /var/erlang/<app>/rel/<rel>/lib/PATCHES/ebin
+    _PatchedDir = filename:join([TargetRelLibDir, "PATCHES", "ebin"]),
+    %% /etc/erlang/<app>
+    TargetEtc = filename:join(?TARGET_ETC++[AppName]),
+    %% /etc/erlang/<app>/<rel>
+    TargetEtcRel = filename:join(TargetEtc, Rel),
+    
+    %% SOURCE DIRECTORIES
+    %% var/erlang/<app>
+    Var = filename:join(?VAR ++ [AppName]),
+    %% var/erlang/<app>
+    Etc = filename:join(?ETC ++ [AppName]),
+    %% var/erlang/<app>/rel/<rel>
+    _RelDir = filename:join([Var, "rel", Rel]),
+    %% etc/erlang/<app>/<rel>
+    _EtcRel = filename:join(?ETC++[Rel]),
+
+    Script0 =
+	{script,[
+		 {r, ["#! /bin/sh"]},
+		 {r, ["# install and upgrade script"]},
+		 {r, ["# Get name of the user"]},
+		 {r, ["if [ \"$1\" == \"\" ]; then"]},
+		 {r, [?TAB,"XUSER=`logname`"]},
+		 {r, ["else"]},
+		 {r, [?TAB,"XUSER=$1"]},
+		 {r, ["fi"]},
+		 {r, ["# Set sudo and no sudo script"]},
+		 {r, ["XUID=`id -u`"]},
+		 {r, ["if [ $XUID -eq 0 ]; then"]},
+		 {r, [?TAB,"SUDO=\"sh -c\""]},
+		 {r, [?TAB,"NSUDO=\"sudo -u $XUSER -c \""]},
+		 {r, ["else"]},
+		 {r, [?TAB,"SUDO=\"sudo sh -c\""]},
+		 {r, [?TAB,"NSUDO=\"sh -c \""]},
+		 {r, ["fi"]},
+		 {r, ["if [ ! -d ", TargetVar, " -o ! -d ",TargetEtc," ]; then"]},
+		 {r, [?TAB,"$SUDO \"mkdir -p ", TargetVar, "\""]},
+		 {r, [?TAB,"$SUDO \"mkdir -p ", TargetEtc, "\""]},
+		 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetVar, "\""]},
+		 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetEtc, "\""]},
+		 {r, ["fi"]},
+
+		 {r,["$NSUDO \"cp -RPpn ",
+		     filename:join(Var,"*"), " ", TargetVar, "\""]},
+		 {r,["$NSUDO \"cp -RPpn ",
+		     filename:join(Etc,"*"), " ", TargetEtc, "\""]},
+		 {r,["if [ ! -f ", filename:join(TargetEtc, AppName++".config"),
+		     " ]; then"]},
+		 {r,[?TAB,"$NSUDO \"cp -p ", filename:join(TargetEtcRel,AppName++".config")," ", filename:join(TargetEtc, AppName++".config"), "\""]},
+		 {r,["else"]},
+		 {r,[?TAB,"echo 'servator: do not forget to update ",
+		     filename:join(TargetEtc, AppName++".config"),
+		     "'"]},
+		 {r,["fi"]},
+		 {r,["$NSUDO \"cp -p ", filename:join(TargetEtcRel,AppName++".run")," ", filename:join(TargetEtc, AppName++".run"),"\""]},
+		 {r, ["$NSUDO \"cp -p ", 
+		      filename:join(TargetEtcRel,"release"), " ",
+		      filename:join(TargetEtc,"release"), "\""]}
+		]},
+    Script1 = nl(Script0),
+    Script2 = flat(Script1),
+    Filename = filename:join(installation_root_dir(AppName,Rel),"install.sh"),
+    ok = file:write_file(Filename, list_to_binary(Script2)),
+    ok = make_executable(Filename),
+    ok.
+
 %% Make the serv plist to use with mac os, replace the start/stop
 %% sudo launchctl load /etc/erlang/<app>/<app>.plist 
 %% sudo launchctl unload /etc/erlang/<app>/<app>.plist 
@@ -153,8 +288,8 @@ make_osx_plist(AppName,Rel) ->
     Script1 = osx_plist(AppName,Rel),
     Script2 = nl(Script1),
     Script3 = flat(Script2),
-    FileName = "org.erlang."++to_string(AppName)++".plist",
-    PList = filename:join(?ETC++[AppName,Rel,FileName]),
+    Filename = "org.erlang."++to_string(AppName)++".plist",
+    PList = installation_etc_dir(AppName,Rel,[AppName,Rel,Filename]),
     ok = file:write_file(PList, list_to_binary(Script3)),
     ?dbg("wrote file: ~s\n", [PList]),
     ok.
@@ -166,8 +301,8 @@ make_osx_plist(AppName,Rel) ->
 %%   sudo launchctl enable system/org.erlang.<app>.plist
 %%
 osx_plist(AppName,Rel) ->
-    Var = filename:join(["/"|?VAR]++[AppName]),
-    EtcDir = filename:join(["/"|?ETC]++[AppName]),
+    Var = filename:join(?TARGET_VAR++[AppName]),
+    EtcDir = filename:join(?TARGET_ETC++[AppName]),
     RelDir = filename:join([Var,"rel",Rel]),
 
     PatchDir = filename:join([RelDir,"lib","PATCHES","ebin"]),
@@ -228,16 +363,16 @@ osx_plist(AppName,Rel) ->
 %%        chmod +x /etc/init.d/<app>
 %%        sudo update-rc.d <app> defaults
 %%
-make_init_d(AppName) ->
-    Initd = filename:join("etc", "init.d"),
+make_init_d(AppName,Rel) ->
+    Initd = filename:join([installation_root_dir(AppName,Rel),"etc","init.d"]),
     ok = make_dir(Initd),
     Script1 = init_d(AppName),
     Script2 = nl(Script1),
     Script3 = flat(Script2),
-    FileName = filename:join([Initd, to_string(AppName)]),
-    ok = file:write_file(FileName, list_to_binary(Script3)),
-    ok = make_executable(FileName),
-    ?dbg("wrote file: ~s\n", [FileName]),
+    Filename = filename:join([Initd, to_string(AppName)]),
+    ok = file:write_file(Filename, list_to_binary(Script3)),
+    ok = make_executable(Filename),
+    ?dbg("wrote file: ~s\n", [Filename]),
     ok.
 
 init_d(AppName) ->
@@ -354,12 +489,13 @@ client_node_arg() ->
 
 %% Write cookie in a cookie file under /etc/erlang/<app>/.erlang.cookie
 %% and setup cookie file mode.
-make_cookie_file(AppName) ->
+make_cookie_file(AppName,Rel) ->
     case erlang:get_cookie() of
 	nocookie -> 
 	    {error,nocookie};
 	Cookie ->
-	    CookieFile = filename:join(?ETC ++ [AppName,".erlang.cookie"]),
+	    CookieFile = installation_etc_dir(AppName,Rel,
+					      [AppName,".erlang.cookie"]),
 	    CookieData = list_to_binary(atom_to_list(Cookie)),
 	    ?dbg("write file: ~s\n", [CookieFile]),
 	    file:write_file(CookieFile, CookieData),
@@ -443,7 +579,7 @@ erl_heart_arg(AppName) ->
 
 erl_heart_arg_cont(AppName) ->
     [{env, "HEART_COMMAND", 
-	  filename:join(["/"|?ETC] ++ [AppName] ++ 
+	  filename:join(?TARGET_ETC ++ [AppName] ++ 
 			    [to_string(AppName) ++ ".run"]) ++ 
 	  " start"}] 
 	++ 
@@ -606,11 +742,11 @@ erl_args(AppName, Type, Flags, Rel) ->
     %% Name = proplists:get_value(progname, Args, "erl"),
     %% Executable = os:find_executable(Name),
     %% {ok,_Wd} = file:get_cwd(),
-    FileName = to_string(Type)++".args",
-    ArgsFileName = filename:join(?ETC++[AppName,Rel,FileName]),
-    emit_args_file(ArgsFileName, make_args(Type, AppName, Rel)),
+    Filename = to_string(Type)++".args",
+    ArgsFilename = installation_etc_dir(AppName,Rel,[AppName,Rel,Filename]),
+    emit_args_file(ArgsFilename, make_args(Type, AppName, Rel)),
     "$ERL " ++ Flags ++ " -args_file " ++
-	filename:join(["$ETC","$VSN",FileName]).
+	filename:join(["$ETC","$VSN",Filename]).
 
 %%
 %% Combine script, newline and tabs
@@ -727,7 +863,8 @@ copy_config(AppName,Rel) ->
 			SrcConfig0
 		end,
 	    DstConfig = AppName ++ ".config",
-	    DstConfigPath = filename:join(?ETC++[AppName,Rel,DstConfig]),
+	    DstConfigPath = installation_etc_dir(AppName,Rel,
+						 [AppName,Rel,DstConfig]),
 	    case file:read_file(SrcConfig) of
 		{ok,Bin} ->
 		    ok = file:write_file(DstConfigPath, Bin),
@@ -748,7 +885,7 @@ copy_config(AppName,Rel) ->
 %%  vsn = erlang:system_info(version)
 %%  read root from init:get_arguments()
 %%
-copy_erlang_erts(AppName) ->
+copy_erlang_erts(AppName,Rel) ->
     Beam = case erlang:system_info(smp_support) of
 	       true -> "beam.smp";
 	       false -> "beam"
@@ -757,7 +894,8 @@ copy_erlang_erts(AppName) ->
     [Root] = proplists:get_value(root, Args),
     ErtsVsn = "erts-"++erlang:system_info(version),
     SrcDir = filename:join([Root, ErtsVsn, "bin"]),
-    DstDir = filename:join(?VAR++[AppName, ErtsVsn, "bin"]),
+    DstDir = installation_var_dir(AppName,Rel,
+				  [AppName, ErtsVsn, "bin"]),
     ok = make_dir(DstDir),
     lists:foreach(
       fun(File) ->
@@ -795,8 +933,8 @@ user_applications() ->
 	  end, DepApps),
     UserApps ++ XtraApps.
     
-copy_user_applications(AppName) ->
-    DstDir = filename:join(?VAR ++ [AppName, "lib"]),
+copy_user_applications(AppName,Rel) ->
+    DstDir = installation_var_dir(AppName,Rel,[AppName, "lib"]),
     ok = make_dir(DstDir),
     lists:foreach(
       fun({App,_Descr,Vsn}) ->
@@ -810,8 +948,8 @@ otp_applications() ->
     lists:filter(fun({App,_Comment,_Vsn}) -> lists:member(App, SysApps) end,
 		 application:loaded_applications()).
 
-copy_otp_applications(AppName) ->
-    DstDir = filename:join(?VAR ++ [AppName, "lib"]),
+copy_otp_applications(AppName,Rel) ->
+    DstDir = installation_var_dir(AppName,Rel,[AppName, "lib"]),
     ok = make_dir(DstDir),
     lists:foreach(
       fun({App,_Descr,Vsn}) ->
@@ -820,9 +958,8 @@ copy_otp_applications(AppName) ->
 	      copy_app(Src, Dst)
       end, otp_applications()).
 
-
 make_release_dir(AppName, Rel) ->
-    RelDir = filename:join(?VAR ++ [AppName, "rel", Rel]),
+    RelDir = installation_var_dir(AppName,Rel,[AppName, "rel", Rel]),
     RelLibDir = filename:join(RelDir, "lib"),
     ok = make_dir(RelLibDir),
     %% create a patches directory that is ( always search first )

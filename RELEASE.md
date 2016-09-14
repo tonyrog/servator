@@ -5,7 +5,7 @@
 
 All otp/user applications are copied, with version, to this location:
 
-    var/erlang/<app>/lib/..
+    <app>-<vsn>/var/erlang/<app>/lib/..
 	  stdlib-1.0
 	  stdlib-1.1
 	  kernel-1.2
@@ -14,11 +14,11 @@ All otp/user applications are copied, with version, to this location:
 	  ...
 
 Erts is copied here:
-    var/erlang/<app>/erts-vsn/..
+    <app>-<vsn>/var/erlang/<app>/erts-vsn/..
 	  erts-5.9.1
 	  erts-7.0
 
-    var/erlang/<app>/rel/..
+    <app>-<vsn>/var/erlang/<app>/rel/..
 	  1.0/
 	   erts -> ../../erts-5.9.1
 	   lib/
@@ -53,7 +53,7 @@ Erts is copied here:
 
 No applications are copied, symbolic links are setup:
 
-    var/erlang/<app>/rel/..
+    <app>-<vsn>/var/erlang/<app>/rel/..
 	soft/
 	   erts -> /usr/local/lib/erlang/erts-7.0
 	   lib/
@@ -73,7 +73,7 @@ No applications are copied, symbolic links are setup:
 Configuration files are located under etc/erlang/<app>/<rel> for each
 release.
 
-    /etc/erlang/<app>/1.0
+    <app>-<vsn>/etc/erlang/<app>/1.0
       start.args
       stop.args
       attach.args

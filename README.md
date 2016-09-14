@@ -3,50 +3,42 @@
 A service creator based on the state of the running system. The idea is
 to inspect a running system and create start scripts based on what is
 found running.
+
+# normal release
+
 It is so simple to create server scripts this way, example
+
+    $ erl -sname foo -s foo -config foo.config
+    > servator:make_release(foo).
+
+    Or if a version not in application env must be used
+
+    > servator:make_release(foo,"9.99").
+
+    > ...
+    > halt().
+
+    $ cd foo-1.0; ./install.sh
+
+NOTE. If /etc/erlang/foo or /var/erlang/foo does not exist or
+are not owned by the current user. They must be created.
+
+When creating a release all data is copied into a release structure
+that can be use standalone.
+
+# Soft release
 
     $ erl -sname foo -s foo -config foo.config
     > servator:make_soft_release(foo).
     > ...
     > halt().
     
-    $ mv etc/erlang/foo /etc/erlang/foo
-    $ mv var/erlang/foo /var/erlang/foo
-    $ # maybe edit /etc/erlang/foo/foo.config to reflect the new home
+    $ cd foo-soft; ./install.sh
 
-    Or if this is an upgrade then
-
-    $ cp -RPn var/erlang/foo/* /var/erlang/foo/
-    $ cp -RPn etc/erlang/foo/* /etc/erlang/foo/
-    $ cp /etc/erlang/foo/<vsn>/foo.run /etc/erlang/foo/
-    $ # maybe update /etc/erlang/foo/foo.config 
+You may have to edit /etc/erlang/foo/foo.config to reflect the new home
 
 The soft release create a release structure but will use symbolic links
 to refer to the libraries used.
-
-    $ erl -sname foo -s foo -config foo.config
-    > servator:make_release(foo, "1.0").
-
-    Or if the correct version is in application env
-
-    > servator:make_release(foo).
-
-    > ...
-    > halt().
-    
-    $ mv etc/erlang/foo /etc/erlang/foo
-    $ mv var/erlang/foo /var/erlang/foo
-    $ # maybe edit /etc/erlang/foo.config to reflect the new home
-
-    Or if this is an upgrade then
-
-    $ cp -RPn var/erlang/foo/* /var/erlang/foo/
-    $ cp -RPn etc/erlang/foo/* /etc/erlang/foo/
-    $ cp /etc/erlang/foo/<vsn>/foo.run /etc/erlang/foo/
-    $ # maybe update /etc/erlang/foo/foo.config 
-
-When creating a release all data is copied into a release structure
-that can be use standalone.
 
 More info about the release structure is found in RELEASE.md
 
@@ -82,7 +74,7 @@ To start a node in "normal" mode can be nice when debuging.
 
 ## Linux init.d
 
-    $ sudo cp etc/init.d/foo /etc/init.d/
+    $ sudo cp foo-1.0/etc/init.d/foo /etc/init.d/
     $ sudo chmod +x /etc/init.d/foo
     $ sudo update-rc.d foo defaults
 
@@ -98,14 +90,14 @@ add the following line to /etc/rc.local ( before any exit 0 )
 
 On 10.10 ( and later ? )
 
-    sudo cp /etc/erlang/<app>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
+    sudo cp /etc/erlang/<app>/<rel>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
     sudo launchctl bootstrap system /System/Library/LaunchDaemons/org.erlang.<app>.plist
     sudo launchctl kickstart system/org.erlang.<app>.plist
     sudo launchctl enable system/org.erlang.<app>.plist
 
 On 10.x before 10.10 ( still works in 10.10! )
 
-    sudo cp /etc/erlang/<app>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
+    sudo cp /etc/erlang/<app>/<rel>/org.erlang.<app>.plist /System/Library/LaunchDaemons/
     sudo launchctl load -w /System/Library/LaunchDaemons/org.erlang.<app>.plist
 
 Print current status (10.10 ?)
@@ -118,5 +110,5 @@ Print current status (10.10 ?)
 In 10.11 it is no longer possible to install stuff under /System/Library/LaunchDaemons so instead /Library/LaunchDaemons is used
 
 
-    sudo cp /etc/erlang/<app>/org.erlang.<app>.plist /Library/LaunchDaemons/
+    sudo cp /etc/erlang/<app>/<rel>/org.erlang.<app>.plist /Library/LaunchDaemons/
     sudo launchctl load -w /Library/LaunchDaemons/org.erlang.<app>.plist
