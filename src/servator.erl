@@ -145,10 +145,10 @@ make_scripts(AppName,Rel) ->
     Script2 = nl(Script1),
     Script3 = flat({script,
 		    [
-		     {r,["#!/bin/bash\n"]},
+		     {r,["#!/bin/sh\n"]},
 		     {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/../../..\" && pwd)`",?NL]},
 		     {r,["PREFIX=$THISDIR",?NL]},  %% maybe set to . or whatever
-		     {r,["if [ \"$PREFIX\" == \"/\" ]; then",?NL]},
+		     {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
 		     {r,["    PREFIX=\"\"",?NL]},
 		     {r,["fi",?NL]},
 		     {r,["VSN=",Rel,?NL]},
@@ -232,10 +232,10 @@ make_installation_script(AppName, Rel) when
 
     Script0 =
 	{script,[
-		 {r, ["#! /bin/sh"]},
+		 {r, ["#!/bin/sh"]},
 		 {r, ["# install and upgrade script"]},
 		 {r, ["# Get name of the user"]},
-		 {r, ["if [ \"$1\" == \"\" ]; then"]},
+		 {r, ["if [ \"$1\" = \"\" ]; then"]},
 		 {r, [?TAB,"XUSER=`logname`"]},
 		 {r, ["else"]},
 		 {r, [?TAB,"XUSER=$1"]},
@@ -378,7 +378,7 @@ make_init_d(AppName,Rel) ->
 init_d(AppName) ->
     {script,
      [
-      {r, ["#! /bin/sh"]},
+      {r, ["#!/bin/sh"]},
       {r, ["#"]},
       {r, [""]},
       {r, ["### BEGIN INIT INFO"]},
