@@ -25,9 +25,11 @@
 -export([make_executable/1]).
 
 %% debug
+-export([installation_etc_dir/2]).
+-export([installation_var_dir/2]).
+-export([get_ebin_paths/1]).
+-export([get_lib_paths/1]).
 -export([make_args/3]).
-
--compile(export_all).
 
 -include_lib("kernel/include/file.hrl").
 

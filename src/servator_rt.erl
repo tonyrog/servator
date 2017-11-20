@@ -6,11 +6,20 @@
 %%% Created : 10 Sep 2016 by Tony Rogvall <tony@rogvall.se>
 
 -module(servator_rt).
--compile(export_all).
 
 -export([compare_version/2]).
 -export([parse_version/1]).
-
+-export([diff/2]).
+-export([diff_apps/3]).
+-export([apps_versions/1]).
+-export([app_version/2]).
+-export([split_version/1]).
+-export([parse_package/1]).
+-export([parse_package_/2]).
+-export([parse_architecture/1]).
+-export([parse_name/1]).
+-export([parse_name/2]).
+-export([trim_string/1]).
 
 -define(is_digit(X), (((X) >= $0) andalso ((X) =< $9))).
 -define(is_lower(X), (((X) >= $a) andalso ((X) =< $z))).
