@@ -186,10 +186,10 @@ make_release_file(AppName,Rel) ->
 %% The script looks something like
 %% 
 %% cp
-%%   -R [--recursive]      recursive                       [mac,linux]
-%%   -P [--no-dereference] never follow symbolic links     [mac,linux]
+%%   -R [--recursive]      recursive                       [mac,linux,busybox]
+%%   -P [--no-dereference] never follow symbolic links     [mac,linux,busybox]
 %%   -n [--no-clobber]     do not overwrite existing files [mac,linux]
-%%   -p [--preserve=..]    preserve mode,ownership,timestamps [mac,linux]
+%%   -p [--preserve=..]    preserve mode,ownership,timestamp [mac,linux,busybox]
 %%
 %% #!/bin/sh
 %%    cp -RPpn var/erlang/<app>/*  /var/erlang/<app>/
@@ -276,10 +276,17 @@ make_installation_script(AppName, Rel) when
 	 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetVar, "\""]},
 	 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetEtc, "\""]},
 	 {r, ["fi"]},
-	 
-	 {r,["$NSUDO \"cp -RPpn ",
+	 %% check for busy box and set cp arguments
+	 {r, ["BUSYBOX=`readlink /bin/cp`"]},
+	 {r, ["if [ \"$BUSYBOX\" = \"busybox\" ]; then"]},
+	 {r, ["CPOPTS=\"-RPpf\""]},  %% we need to force copy here or fail!
+	 {r, ["else"]},
+	 {r, ["CPOPTS=\"-RPpn\""]},
+	 {r, ["fi"]},
+	 %% copy var and etc structures
+	 {r,["$NSUDO \"cp $CPOPTS ",
 	     filename:join(Var,"*"), " ", TargetVar, "\""]},
-	 {r,["$NSUDO \"cp -RPpn ",
+	 {r,["$NSUDO \"cp $CPOPTS ",
 	     filename:join(Etc,"*"), " ", TargetEtc, "\""]}] ++
 
 	Configs ++
