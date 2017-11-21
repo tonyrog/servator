@@ -118,7 +118,7 @@ make_scripts(AppName,Rel) ->
     Var = installation_var_dir(AppName,Rel,[AppName]),
     ok = make_dir(filename:join(Etc,Rel)),
     ok = make_dir(Var),
-    ok = copy_config(AppName,Rel),
+    ok = copy_configs(AppName,Rel),
     Start = shell_start_command(AppName,Rel),
     Interactive = shell_interactive_command(AppName,Rel),
     Stop  = shell_stop_command(AppName,Rel),
@@ -194,11 +194,17 @@ make_release_file(AppName,Rel) ->
 %% #!/bin/sh
 %%    cp -RPpn var/erlang/<app>/*  /var/erlang/<app>/
 %%    cp -RPpn etc/erlang/<app>/*  /etc/erlang/<app>/
-%%    if [ ! -f /etc/erlang/<app>/<app>.config ]; then
-%%       cp /etc/erlang/<app>/<rel>/<app>.config /etc/erlang/<app>/<app>.config
+%%    if [ ! -f /etc/erlang/<app>/<f1>.config ]; then
+%%       cp /etc/erlang/<app>/<rel>/<f1>.config /etc/erlang/<app>/<f1>.config
 %%    else
-%%       echo "servator: do not forget to update /etc/erlang/<app>/<app>.config"
+%%       echo "servator: do not forget to update f1.config"
 %%    fi
+%%    if [ ! -f /etc/erlang/<app>/<f2>.config ]; then
+%%       cp /etc/erlang/<app>/<rel>/<f2>.config /etc/erlang/<app>/<f2>.config
+%%    else
+%%       echo "servator: do not forget to update f2.config"
+%%    fi
+%%    ...
 %%    cp -p /etc/erlang/<app>/<rel>/<app>.run /etc/erlang/<app>/<app>.run
 %%    if [ -f /etc/erlang/<app>/release ]; then
 %%       OLD=`cat /etc/erlang/<app>/release`
@@ -232,50 +238,58 @@ make_installation_script(AppName, Rel) when
     %% etc/erlang/<app>/<rel>
     _EtcRel = filename:join(?ETC++[Rel]),
 
-    Script0 =
-	{script,[
-		 {r, ["#!/bin/sh"]},
-		 {r, ["# install and upgrade script"]},
-		 {r, ["# Get name of the user"]},
-		 {r, ["if [ \"$1\" = \"\" ]; then"]},
-		 {r, [?TAB,"XUSER=`logname`"]},
-		 {r, ["else"]},
-		 {r, [?TAB,"XUSER=$1"]},
-		 {r, ["fi"]},
-		 {r, ["# Set sudo and no sudo script"]},
-		 {r, ["XUID=`id -u`"]},
-		 {r, ["if [ $XUID -eq 0 ]; then"]},
-		 {r, [?TAB,"SUDO=\"sh -c \""]},
-		 {r, [?TAB,"NSUDO=\"sudo -u $XUSER sh -c \""]},
-		 {r, ["else"]},
-		 {r, [?TAB,"SUDO=\"sudo sh -c \""]},
-		 {r, [?TAB,"NSUDO=\"sh -c \""]},
-		 {r, ["fi"]},
-		 {r, ["if [ ! -d ", TargetVar, " -o ! -d ",TargetEtc," ]; then"]},
-		 {r, [?TAB,"$SUDO \"mkdir -p ", TargetVar, "\""]},
-		 {r, [?TAB,"$SUDO \"mkdir -p ", TargetEtc, "\""]},
-		 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetVar, "\""]},
-		 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetEtc, "\""]},
-		 {r, ["fi"]},
+    Configs = 
+	lists:append(
+	  [ [{r,["if [ ! -f ", filename:join(TargetEtc, File),
+		 " ]; then"]},
+	     {r,[?TAB,"$NSUDO \"cp -p ",
+		 filename:join(TargetEtcRel, File)," ",
+		 filename:join(TargetEtc, File), "\""]},
+	     {r,["else"]},
+	     {r,[?TAB,"echo 'servator: do not forget to update ",
+		 filename:join(TargetEtc, File),
+		 "'"]},
+	     {r,["fi"]}] || File <- get_config_filenames()]),
 
-		 {r,["$NSUDO \"cp -RPpn ",
-		     filename:join(Var,"*"), " ", TargetVar, "\""]},
-		 {r,["$NSUDO \"cp -RPpn ",
-		     filename:join(Etc,"*"), " ", TargetEtc, "\""]},
-		 {r,["if [ ! -f ", filename:join(TargetEtc, AppName++".config"),
-		     " ]; then"]},
-		 {r,[?TAB,"$NSUDO \"cp -p ", filename:join(TargetEtcRel,AppName++".config")," ", filename:join(TargetEtc, AppName++".config"), "\""]},
-		 {r,["else"]},
-		 {r,[?TAB,"echo 'servator: do not forget to update ",
-		     filename:join(TargetEtc, AppName++".config"),
-		     "'"]},
-		 {r,["fi"]},
-		 {r,["$NSUDO \"cp -p ", filename:join(TargetEtcRel,AppName++".run")," ", filename:join(TargetEtc, AppName++".run"),"\""]},
-		 {r, ["$NSUDO \"cp -p ", 
-		      filename:join(TargetEtcRel,"release"), " ",
-		      filename:join(TargetEtc,"release"), "\""]}
-		]},
-    Script1 = nl(Script0),
+    Script0 =
+	[
+	 {r, ["#!/bin/sh"]},
+	 {r, ["# install and upgrade script"]},
+	 {r, ["# Get name of the user"]},
+	 {r, ["if [ \"$1\" = \"\" ]; then"]},
+	 {r, [?TAB,"XUSER=`logname`"]},
+	 {r, ["else"]},
+	 {r, [?TAB,"XUSER=$1"]},
+	 {r, ["fi"]},
+	 {r, ["# Set sudo and no sudo script"]},
+	 {r, ["XUID=`id -u`"]},
+	 {r, ["if [ $XUID -eq 0 ]; then"]},
+	 {r, [?TAB,"SUDO=\"sh -c \""]},
+	 {r, [?TAB,"NSUDO=\"sudo -u $XUSER sh -c \""]},
+	 {r, ["else"]},
+	 {r, [?TAB,"SUDO=\"sudo sh -c \""]},
+	 {r, [?TAB,"NSUDO=\"sh -c \""]},
+	 {r, ["fi"]},
+	 {r, ["if [ ! -d ", TargetVar, " -o ! -d ",TargetEtc," ]; then"]},
+	 {r, [?TAB,"$SUDO \"mkdir -p ", TargetVar, "\""]},
+	 {r, [?TAB,"$SUDO \"mkdir -p ", TargetEtc, "\""]},
+	 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetVar, "\""]},
+	 {r, [?TAB,"$SUDO \"chown $XUSER:$XUSER ", TargetEtc, "\""]},
+	 {r, ["fi"]},
+	 
+	 {r,["$NSUDO \"cp -RPpn ",
+	     filename:join(Var,"*"), " ", TargetVar, "\""]},
+	 {r,["$NSUDO \"cp -RPpn ",
+	     filename:join(Etc,"*"), " ", TargetEtc, "\""]}] ++
+
+	Configs ++
+	
+	[{r,["$NSUDO \"cp -p ", filename:join(TargetEtcRel,AppName++".run")," ", filename:join(TargetEtc, AppName++".run"),"\""]},
+	 {r, ["$NSUDO \"cp -p ", 
+	      filename:join(TargetEtcRel,"release"), " ",
+	      filename:join(TargetEtc,"release"), "\""]}
+	],
+    Script1 = nl({script,Script0}),
     Script2 = flat(Script1),
     Filename = filename:join(installation_root_dir(AppName,Rel),"install.sh"),
     ok = file:write_file(Filename, list_to_binary(Script2)),
@@ -309,54 +323,62 @@ osx_plist(AppName,Rel) ->
 
     PatchDir = filename:join([RelDir,"lib","PATCHES","ebin"]),
     ArgsFilePath = filename:join([EtcDir,Rel,"start.args"]),
-    ConfigPath = filename:join([EtcDir,AppName++".config"]),
     ErlPath  = filename:join([RelDir,"bin","erl"]),
     User = os:getenv("USER"),
 
-    {script,
-     [
-      {r, ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>"]},
-      {r, ["<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\""]},
-      {r, ["  \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"]},
-      {r, ["<plist version=\"1.0\">"]},
-      {r, [?TAB,"<dict>"]},
-      {r, [?TAB,?TAB,"<key>Label</key>"]},
-      {r, [?TAB,?TAB,"<string>org.erlang.",AppName,"</string>"]},
-      {r, [?TAB,?TAB,"<key>EnvironmentVariables</key>"]},
-      {r, [?TAB,?TAB,"<dict>"]},
-      {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
-      {r, [?TAB,?TAB,?TAB,"<string>",EtcDir,"</string>"]},
-      {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP_SECONDS</key>"]},
-      {r, [?TAB,?TAB,?TAB,"<string>0</string>"]},
-%%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
-%%    {r, [?TAB,?TAB,?TAB,"<string>/opt/local/lib:</string>"]},
-      {r, [?TAB,?TAB,"</dict>"]},
-      {r, [?TAB,?TAB,"<key>ProgramArguments</key>"]},
-      {r, [?TAB,?TAB,"<array>"]},
-      {r, [?TAB,?TAB,"<string>", ErlPath, "</string>"]},
-      {r, [?TAB,?TAB,"<string>-config</string>"]},
-      {r, [?TAB,?TAB,"<string>",ConfigPath,"</string>"]},
-      {r, [?TAB,?TAB,"<string>-pa</string>"]},
-      {r, [?TAB,?TAB,"<string>",PatchDir,"</string>"]},
-      {r, [?TAB,?TAB,"<string>-noinput</string>"]},  %% detached does not work!!
-      {r, [?TAB,?TAB,"<string>-args_file</string>"]},
-      {r, [?TAB,?TAB,"<string>",ArgsFilePath,"</string>"]},
-      {r, [?TAB,?TAB,"</array>"]},
-      {r, [?TAB,?TAB,"<key>UserName</key>"]},
-      {r, [?TAB,?TAB,"<string>", User, "</string>"]},
-      {r, [?TAB,?TAB,"<key>StandardOutPath</key>"]},
-      {r, [?TAB,?TAB,"<string>/dev/null</string>"]},
-      {r, [?TAB,?TAB,"<key>StandardErrorPath</key>"]},
-      {r, [?TAB,?TAB,"<string>/dev/null</string>"]},
-      {r, [?TAB,?TAB,"<key>RunAtLoad</key>"]},
-      {r, [?TAB,?TAB,"<true/>"]},
-      {r, [?TAB,?TAB,"<key>KeepAlive</key>"]},
-      {r, [?TAB,?TAB,"<true/>"]},
-      {r, [?TAB,?TAB,"<key>WorkingDirectory</key>"]},
-      {r, [?TAB,?TAB,"<string>", Var, "</string>"]},
-      {r, [?TAB,"</dict>"]},
-      {r, ["</plist>"]}
-     ]}.
+    Configs = 
+	lists:append(
+	  [[{r, [?TAB,?TAB,"<string>-config</string>"]},
+	    {r, [?TAB,?TAB,"<string>",filename:join(EtcDir,File),
+		 "</string>"]}] ||
+	      File <- get_config_filenames()]),
+
+    Script = 
+[
+ {r, ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>"]},
+ {r, ["<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\""]},
+ {r, ["  \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"]},
+ {r, ["<plist version=\"1.0\">"]},
+ {r, [?TAB,"<dict>"]},
+ {r, [?TAB,?TAB,"<key>Label</key>"]},
+ {r, [?TAB,?TAB,"<string>org.erlang.",AppName,"</string>"]},
+ {r, [?TAB,?TAB,"<key>EnvironmentVariables</key>"]},
+ {r, [?TAB,?TAB,"<dict>"]},
+ {r, [?TAB,?TAB,?TAB,"<key>HOME</key>"]},
+ {r, [?TAB,?TAB,?TAB,"<string>",EtcDir,"</string>"]},
+ {r, [?TAB,?TAB,?TAB,"<key>ERL_CRASH_DUMP_SECONDS</key>"]},
+ {r, [?TAB,?TAB,?TAB,"<string>0</string>"]},
+ %%    {r, [?TAB,?TAB,?TAB,"<key>DYLD_LIBRARY_PATH</key>"]},
+ %%    {r, [?TAB,?TAB,?TAB,"<string>/opt/local/lib:</string>"]},
+ {r, [?TAB,?TAB,"</dict>"]},
+ {r, [?TAB,?TAB,"<key>ProgramArguments</key>"]},
+ {r, [?TAB,?TAB,"<array>"]},
+ {r, [?TAB,?TAB,"<string>", ErlPath, "</string>"]}] ++
+
+	Configs ++
+[
+ {r, [?TAB,?TAB,"<string>-pa</string>"]},
+ {r, [?TAB,?TAB,"<string>",PatchDir,"</string>"]},
+ {r, [?TAB,?TAB,"<string>-noinput</string>"]},  %% detached does not work!!
+ {r, [?TAB,?TAB,"<string>-args_file</string>"]},
+ {r, [?TAB,?TAB,"<string>",ArgsFilePath,"</string>"]},
+ {r, [?TAB,?TAB,"</array>"]},
+ {r, [?TAB,?TAB,"<key>UserName</key>"]},
+ {r, [?TAB,?TAB,"<string>", User, "</string>"]},
+ {r, [?TAB,?TAB,"<key>StandardOutPath</key>"]},
+ {r, [?TAB,?TAB,"<string>/dev/null</string>"]},
+ {r, [?TAB,?TAB,"<key>StandardErrorPath</key>"]},
+ {r, [?TAB,?TAB,"<string>/dev/null</string>"]},
+ {r, [?TAB,?TAB,"<key>RunAtLoad</key>"]},
+ {r, [?TAB,?TAB,"<true/>"]},
+ {r, [?TAB,?TAB,"<key>KeepAlive</key>"]},
+ {r, [?TAB,?TAB,"<true/>"]},
+ {r, [?TAB,?TAB,"<key>WorkingDirectory</key>"]},
+ {r, [?TAB,?TAB,"<string>", Var, "</string>"]},
+ {r, [?TAB,"</dict>"]},
+ {r, ["</plist>"]}],
+
+    {script,Script}.
 
 %%
 %% Linux: init.d script
@@ -510,13 +532,8 @@ make_cookie_file(AppName,Rel) ->
 erl_hidden_arg() ->
     [{"hidden", ""}].
 
-erl_config_arg(AppName) ->
-    Args = init:get_arguments(),
-    case proplists:get_value(config, Args) of
-	undefined -> 
-	    "";
-	_ -> AppName ++ ".config"
-    end.
+erl_config_arg(_AppName) ->
+    [ " -config "++File || File <- get_target_config_files()].
 
 erl_smp_arg() ->
     case erlang:system_info(smp_support) of
@@ -651,12 +668,7 @@ format_args(Args) ->
 %% Generate the start command
 shell_start_command(AppName,Rel) ->
     User = os:getenv("USER"),
-    Flags0 =
-	case erl_config_arg(AppName) of
-	    "" -> "";
-	    DstConfig ->
-		" -config "++filename:join("$ETC", DstConfig)
-	end,
+    Flags0 = erl_config_arg(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
     Start = erl_args(AppName, start, Flags2++" -detached", Rel),
@@ -677,12 +689,7 @@ shell_start_command(AppName,Rel) ->
 %% Generate the interactive command
 shell_interactive_command(AppName,Rel) ->
     User = os:getenv("USER"),
-    Flags0 = 
-	case erl_config_arg(AppName) of
-	    "" -> "";
-	    DstConfig ->
-		" -config "++filename:join("$ETC", DstConfig)
-	end,
+    Flags0 = erl_config_arg(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     HomeDir = "$VAR",
     Start = erl_args(AppName, start, Flags1, Rel),
@@ -847,37 +854,76 @@ system_applications([AppVsn|Apps], LibDir, Acc) ->
 system_applications([],_LibDir,Acc) ->
     Acc.
 
-copy_config(AppName,Rel) ->
-    Args = init:get_arguments(),
-    case proplists:get_value(config, Args) of
-	undefined ->
-	    "";
-	[SrcConfig0] ->
-	    SrcConfig = 
-		case filename:extension(SrcConfig0) of
-		    [] ->
-			SrcConfig0 ++ ".config";
-		    ".config" -> 
-			SrcConfig0;
-		    _Other ->
-			io:format("warning: unexpected config file: ~s\n", 
-				  [SrcConfig0]),
-			SrcConfig0
-		end,
-	    DstConfig = AppName ++ ".config",
-	    DstConfigPath = installation_etc_dir(AppName,Rel,
-						 [AppName,Rel,DstConfig]),
-	    case file:read_file(SrcConfig) of
-		{ok,Bin} ->
-		    ok = file:write_file(DstConfigPath, Bin),
-		    ?dbg("copied file: ~s to ~s\n",
-			 [SrcConfig, DstConfigPath]),
-		    ok;
-		Error ->
-		    io:format("error copy file: ~s : ~p\n", [SrcConfig, Error]),
-		    Error
-	    end
+copy_configs(AppName,Rel) ->
+    case get_config_files() of
+	[] ->
+	    ok;
+	ConfigFiles ->
+	    DstFiles = [filename:basename(File) || File <- ConfigFiles],
+	    check_config_files(DstFiles,AppName),
+	    lists:foreach(
+	      fun({SrcConfig,DstFile}) ->
+		      case file:read_file(SrcConfig) of
+			  {ok,Bin} ->
+			      DstPath = installation_etc_dir(AppName,Rel,
+							     [AppName,Rel,
+							      DstFile]),
+			      ok = file:write_file(DstPath, Bin),
+			      ?dbg("copied file: ~s to ~s\n",
+				   [SrcConfig, DstPath]),
+			      ok;
+			  Error ->
+			      io:format("error copy file: ~s : ~p\n", 
+					[SrcConfig, Error]),
+			      Error
+		      end
+	      end, lists:zip(ConfigFiles, DstFiles))
     end.
+
+get_target_config_files() ->
+    [filename:join("$ETC",filename:basename(File)) || 
+	File <- get_config_files()].
+
+get_config_filenames() ->
+    [filename:basename(File) || File <- get_config_files()].
+
+get_config_files() ->
+    Args = init:get_arguments(),
+    case proplists:get_all_values(config, Args) of
+	[] -> [];
+	Configs ->
+	    [case filename:extension(File) of
+		 "" -> File++".config";
+		 ".config" -> File;
+		 _ -> File
+	     end || [File] <- Configs]
+    end.
+
+%% check that:
+%% - config files has unique basenames  (error)
+%% - <app>.config or sys.config are present (warn)
+check_config_files(Files, AppName) ->
+    check_config_files(Files),
+    case lists:member(AppName++".config", Files) orelse
+	lists:member("sys.config", Files) of
+	false ->
+	    io:format("warning: missing <app>.config or sys.config file\n");
+	true ->
+	    ok
+    end.
+
+check_config_files([File|Files]) ->
+    case lists:member(File, Files) of
+	true ->
+	    io:format("error: ~s has a duplicate\n", [File]),
+	    erlang:error({duplicate_config,File});
+	false ->
+	    ok
+    end,
+    check_config_files(Files);
+check_config_files([]) ->
+    ok.
+    
 %%
 %% Copy erts data
 %%   erts-<vsn>/bin
@@ -899,11 +945,18 @@ copy_erlang_erts(AppName,Rel) ->
     DstDir = installation_var_dir(AppName,Rel,
 				  [AppName, ErtsVsn, "bin"]),
     ok = make_dir(DstDir),
+
+    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
+    ChildSetup = if OtpRelease >= 20 ->
+			 "erl_child_setup";
+		    true ->
+			 "child_setup"
+		 end,
     lists:foreach(
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
 			     filename:join([DstDir, File]))
-      end, [Beam, "child_setup", "epmd", "heart", "inet_gethost",
+      end, [Beam, ChildSetup, "epmd", "heart", "inet_gethost",
 	    "erlexec", "escript"]).
 
 
