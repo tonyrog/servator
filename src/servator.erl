@@ -119,11 +119,12 @@ make_scripts(AppName,Rel) ->
     ok = make_dir(filename:join(Etc,Rel)),
     ok = make_dir(Var),
     ok = copy_configs(AppName,Rel),
-    Start = shell_start_command(AppName,Rel),
-    Interactive = shell_interactive_command(AppName,Rel),
-    Stop  = shell_stop_command(AppName,Rel),
-    Attach = shell_attach_command(AppName,Rel),
-    Status = shell_status_command(AppName,Rel),
+    Home = "export HOME=$PREFIX/"++RootEtc,
+    Start = shell_start_command(AppName,Rel,Home),
+    Interactive = shell_interactive_command(AppName,Rel,Home),
+    Stop  = shell_stop_command(AppName,Rel,Home),
+    Attach = shell_attach_command(AppName,Rel,Home),
+    Status = shell_status_command(AppName,Rel,Home),
     Script0 =
 	{script,[
 		 {r,["case $1 in"]},
@@ -156,7 +157,7 @@ make_scripts(AppName,Rel) ->
 		     {r,["VSN=",Rel,?NL]},
 		     {r,["VAR=","$PREFIX","/",RootVar,?NL]},
 		     {r,["ETC=","$PREFIX","/",RootEtc,?NL]},
-		     {r,["export HOME=","$PREFIX","/",RootEtc,?NL]},
+		     {r,[Home,?NL]},
 		     if Rel =:= "" ->
 			     {r,["ERL=","erl",?NL]};
 			true ->
@@ -673,81 +674,81 @@ format_args(Args) ->
       end, Args).
 
 %% Generate the start command
-shell_start_command(AppName,Rel) ->
+shell_start_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
     Flags0 = erl_config_arg(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
     Start = erl_args(AppName, start, Flags2++" -detached", Rel),
-    HomeDir = "$VAR",
+    DefaultDir = "$VAR",
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
-      {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
-	  "export ERL_CRASH_DUMP_SECONDS=0; ",
+      {r,[?TAB, su_command(), ?Q, "(cd ", DefaultDir, "; ",
+	  Home, "; ","export ERL_CRASH_DUMP_SECONDS=0; ",
 	  backquote(Start), " > /dev/null 2>&1", ")", ?Q ]},
       {r,["else"]},
-      {r,[?TAB, "(cd ", HomeDir, "; ",
+      {r,[?TAB, "(cd ", DefaultDir, "; ",
 	  "export ERL_CRASH_DUMP_SECONDS=0; ",
 	  Start," > /dev/null 2>&1", ")"]},
       {r,["fi"]}
      ]}.
 
 %% Generate the interactive command
-shell_interactive_command(AppName,Rel) ->
+shell_interactive_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
     Flags0 = erl_config_arg(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
-    HomeDir = "$VAR",
+    DefaultDir = "$VAR",
     Start = erl_args(AppName, start, Flags1, Rel),
     {script,
      [
       {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
-      {r,[?TAB, su_command(), ?Q, "(cd ", HomeDir, "; ",
-	  Start, ")", ?Q ]},
+      {r,[?TAB, su_command(), ?Q, "(cd ", DefaultDir, "; ",
+	  Home,"; ",Start, ")", ?Q ]},
       {r,["else"]},
-      {r,[?TAB, "(cd ", HomeDir, "; ",
+      {r,[?TAB, "(cd ", DefaultDir, "; ",
 	  Start, ")"]},
       {r,["fi"]}
      ]}.
 
 %% Generate the stop command
-shell_stop_command(AppName,Rel) ->
+shell_stop_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
     NodeArg = client_node_arg(),
     Stop = erl_args(AppName, stop, NodeArg ++ " -noinput", Rel),
     {script,
      [
-      {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
-      {r, [?TAB, su_command() ++ "\"" ++  Stop ++ "\""]},
+      {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
+      {r, [?TAB, su_command(), ?Q, Home, "; ", Stop, ?Q]},
       {r, ["else"]},
       {r, [?TAB, Stop]},
       {r, ["fi"]}
      ]}.
 
 %% Generate the attach command
-shell_attach_command(AppName,Rel) ->
+shell_attach_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
     NodeArg = client_node_arg(),
     Attach = erl_args(AppName, attach, NodeArg, Rel),
     {script,
      [
-      {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
-      {r, [?TAB, su_command() ++ "\"" ++  Attach ++ "\""]},
+      {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
+      {r, [?TAB, su_command(), ?Q, Home, "; ", Attach, ?Q]},
       {r, ["else"]},
       {r, [?TAB, Attach]},
       {r, ["fi"]}
      ]}.
 
 %% Generate the status command
-shell_status_command(AppName,Rel) ->
+shell_status_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
     NodeArg = client_node_arg(),
     Status = erl_args(AppName, status,  NodeArg ++ " -noinput", Rel),
     {script,
      [
-      {r, ["if [ \"$USER\" != \"", User, "\"", " ]; then"]},
-      {r, [?TAB, su_command() ++ "\"" ++  Status ++ "\""]},
+      {r,["if [ ", ?Q, "$USER", ?Q,  " != ", ?Q, User, ?Q, " ]; then" ]},
+      {r, [?TAB, su_command(), ?Q, Home, "; ", Status, ?Q]},
       {r, ["else"]},
       {r, [?TAB, Status]},
       {r, ["fi"]}
