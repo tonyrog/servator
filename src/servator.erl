@@ -955,7 +955,7 @@ copy_erlang_erts(AppName,Rel) ->
     ok = make_dir(DstDir),
 
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
-    ChildSetup = if OtpRelease >= 20 ->
+    ChildSetup = if OtpRelease >= 19 ->
 			 "erl_child_setup";
 		    true ->
 			 "child_setup"
