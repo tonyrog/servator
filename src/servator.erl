@@ -8,7 +8,8 @@
 -export([make_release/1, make_release/2]).
 
 -export([system_applications/0]).
--export([user_applications/0]).
+-export([user_applications/0, user_applications/1]).
+-export([depend_applications/1, depend_user_applications/1]).
 -export([get_started_applications/0]).
 -export([get_started_args/0]).
 
@@ -967,15 +968,56 @@ copy_erlang_erts(AppName,Rel) ->
       end, [Beam, ChildSetup, "epmd", "heart", "inet_gethost",
 	    "erlexec", "escript"]).
 
+%% get all applications that App depend on
+depend_applications(AppName) when is_list(AppName) ->
+    depend_applications(list_to_atom(AppName));
+depend_applications(App) when is_atom(App) ->
+    {ok,Apps} = application:get_key(App, applications),
+    depend_applications_(Apps, []).
+
+depend_applications_([App|Apps], Acc) ->
+    case lists:member(App, Acc) of
+	true ->
+	    depend_applications_(Apps, Acc);
+	false ->
+	    {ok,Deps} = application:get_key(App, applications),
+	    depend_applications_(Apps++Deps, [App|Acc])
+    end;
+depend_applications_([], Acc) ->
+    Acc.
+
+%% get all applications that App depend on,
+%% but filter out all system applications 
+depend_user_applications(App) ->
+    depend_applications(App) -- system_applications().
 
 user_applications() ->
+    user_applications_([]).
+
+user_applications(AppName) ->
+    user_applications_(depend_user_applications(AppName)).
+
+%% some known auto loaded applications (from .erlang )
+auto_loaded_application(fnotify) -> true;
+auto_loaded_application(error_emacs) -> true;
+auto_loaded_application(_) ->  false.
+    
+user_applications_(AppUserDepend) ->
     SysApps = system_applications(),
-    UserApps =
-	lists:filter(fun({fnotify,_,_}) -> false;
-			({error_emacs,_,_}) -> false;
-			({App,_Comment,_Vsn}) ->
-			     not lists:member(App, SysApps) end,
-		     application:loaded_applications()),
+    %% special treat on some loaded "known applications"
+    UserApps = 
+	lists:filter(
+	  fun({App,_Comment,_Vsn}) ->
+		  case lists:member(App,AppUserDepend) of
+		      true -> true;
+		      false ->
+			  case lists:member(App, SysApps) of
+			      true -> false;
+			      false -> not auto_loaded_application(App)
+			  end
+		  end
+	  end, application:loaded_applications()),
+
     UApps = lists:map(fun({App,_,_Vsn}) -> App end, UserApps),
     %% list all dependencies
     DepApps0 =
@@ -1004,7 +1046,7 @@ copy_user_applications(AppName,Rel) ->
 	      Src = code:lib_dir(App),
 	      Dst = filename:join(DstDir, atom_to_list(App)++"-"++Vsn),
 	      copy_app(Src, Dst)
-      end, user_applications()).
+      end, user_applications(AppName)).
 
 otp_applications() ->
     SysApps = system_applications(),
@@ -1054,7 +1096,7 @@ make_release_dir(AppName, Rel) ->
 		  end,
 	      New = filename:join(RelLibDir,App),
 	      ok = symlink(Exist, New)
-      end, user_applications()),
+      end, user_applications(AppName)),
     
     %% symlink erts directory
     ErtsVsn = "erts-"++erlang:system_info(version),

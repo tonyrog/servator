@@ -42,6 +42,20 @@ to refer to the libraries used.
 
 More info about the release structure is found in RELEASE.md
 
+# Make a release when using rebar deps
+
+To build a release for an applications that use rebar deps the
+following steps can be done:
+
+    $ git clone git@github.com/user/foo
+    $ cd foo
+    $ unset REBAR_DEPS_DIR		# we just want deps dir
+    $ unset ERL_LIBS			# ignore all other applications
+    $ rebar get-deps
+    $ rebar compile
+    $ erl -sname foo -pa ../foo/ebin/ -pa deps/*/ebin -config foo.config -s hoc33
+    > servator:make_release(foo, "1.01").
+
 ## Commands
 
 Starting the service is as simple as
