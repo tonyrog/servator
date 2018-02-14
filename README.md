@@ -53,7 +53,7 @@ following steps can be done:
     $ unset ERL_LIBS			# ignore all other applications
     $ rebar get-deps
     $ rebar compile
-    $ erl -sname foo -pa ../foo/ebin/ -pa deps/*/ebin -config foo.config -s hoc33
+    $ erl -sname foo -pa ../foo/ebin/ -pa deps/*/ebin -config foo.config -s foo
     > servator:make_release(foo, "1.01").
 
 ## Commands
