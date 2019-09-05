@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+	<id>app</id>
+	<metadata_license>MIT</metadata_license>
+	<project_license>MIT</project_license>
+	<name>App</name>
+	<summary>Application</summary>
+	<description>
+		<p>App is a template meta data</p>
+	</description>
+	<launchable type="desktop-id">app.desktop</launchable>
+	<url type="homepage">http://rogvall.se/apps/app</url>
+	<screenshots>
+		<screenshot type="default">
+			<image>http://rogvall.se/apps/app/app.png</image>
+		</screenshot>
+	</screenshots>
+	<provides>
+		<id>app.desktop</id>
+	</provides>
+</component>

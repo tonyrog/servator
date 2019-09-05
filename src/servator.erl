@@ -5,7 +5,10 @@
 
 -export([make/1]).
 -export([make_soft_release/1]).
--export([make_release/1, make_release/2]).
+-export([make_appimage/1]).
+-export([make_starexec/1]).
+-export([make_release/1, make_release/3]).
+
 
 -export([system_applications/0]).
 -export([user_applications/0, user_applications/1]).
@@ -62,36 +65,74 @@
 %% ERL_FULLSWEEP_AFTER
 %% ERL_MAX_PORTS
 %%
+make([AppName]) when is_atom(AppName) -> %% from shell
+    make(AppName);
 make(AppName0) ->
     make_soft_release(AppName0).
 
 make_soft_release(AppName0) ->
     Rel = "soft",
-    make(AppName0,Rel),
+    make(AppName0,Rel,release),
     AppName = to_string(AppName0),
     make_release_dir(AppName, Rel).
 
+make_release([AppName]) when is_atom(AppName) -> %% from shell 
+    make_release(AppName);
 make_release(AppName) ->
+    io:format("Make a release of application ~p\n", [AppName]),
     application:load(AppName),
     {ok,Rel} = application:get_key(AppName, vsn),
-    make_release(AppName, Rel).
+    make_release(AppName, Rel, release).
 
-make_release(AppName0, Rel0) ->
+make_appimage([AppName]) when is_atom(AppName) -> %% from shell 
+    make_appimage(AppName);
+make_appimage(AppName) ->
+    io:format("Make a appimage of application ~p\n", [AppName]),
+    application:load(AppName),
+    {ok,Rel} = application:get_key(AppName, vsn),
+    make_release(AppName, Rel, appimage).
+
+make_starexec([AppName]) when is_atom(AppName) -> %% from shell 
+    make_starexec(AppName);
+make_starexec(AppName) ->
+    io:format("Make a appimage of application ~p\n", [AppName]),
+    application:load(AppName),
+    {ok,Rel} = application:get_key(AppName, vsn),
+    make_release(AppName, Rel, starexec).
+
+make_release(AppName0, Rel0, BuildType) ->
+    put(build_type, BuildType),  %% fixme: sloppy!
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
-    make(AppName0,Rel0),
+    make(AppName0,Rel0,BuildType),
     copy_erlang_erts(AppName,Rel),
     copy_user_applications(AppName,Rel),
     copy_otp_applications(AppName,Rel),
     make_release_dir(AppName, Rel).
 
-make(AppName0,Rel0) ->
+make(AppName0,Rel0,BuildType) ->
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
     make_scripts(AppName,Rel),
-    make_osx_plist(AppName,Rel),
-    make_init_d(AppName,Rel),
-    ok = make_cookie_file(AppName,Rel),
+    make_apprun(AppName,Rel),
+    if BuildType =:= appimage ->
+	    copy_appimage_desktop(AppName,Rel),
+	    copy_appimage_metadata(AppName,Rel),
+	    copy_appimage_icon(AppName,Rel),
+	    make_AppRun(AppName,Rel);
+       true ->
+	    ok
+    end,
+    if BuildType =:= starexec ->
+	    make_starexec_run(AppName,Rel);
+       true ->
+	    make_osx_plist(AppName,Rel),
+	    make_init_d(AppName,Rel)
+    end,
+    case make_cookie_file(AppName,Rel) of
+	ok -> ok;
+	{error,nocookie} -> ok
+    end,
     ok = make_installation_script(AppName,Rel),
     ok = make_release_file(AppName,Rel),
     ok.
@@ -99,17 +140,34 @@ make(AppName0,Rel0) ->
 %% return the installation directory name
 %% under which every thing is created
 installation_root_dir(AppName,Rel) ->
-    AppName ++ "-" ++ Rel.
+    case get(build_type) of %% fixme: sloppy!
+	appimage ->
+	    AppName ++ ".AppDir";
+	_ ->
+	    AppName ++ "-" ++ Rel
+    end.
 
 installation_etc_dir(AppName,Rel) ->
     installation_etc_dir(AppName,Rel,[]).
 installation_etc_dir(AppName,Rel,Path) ->
-    filename:join([installation_root_dir(AppName,Rel)|?ETC]++Path).
+    RootDir = installation_root_dir(AppName,Rel),
+    case get(build_type) of %% fixme: sloppy
+	starexec ->
+	    filename:join([RootDir,"bin"|?ETC]++Path);
+	_ ->
+	    filename:join([RootDir|?ETC]++Path)
+    end.
 
 installation_var_dir(AppName,Rel) ->
     installation_var_dir(AppName,Rel,[]).
 installation_var_dir(AppName,Rel,Path) ->
-    filename:join([installation_root_dir(AppName,Rel)|?VAR]++Path).
+    RootDir = installation_root_dir(AppName,Rel),
+    case get(build_type) of %% fixme: sloppy
+	starexec ->
+	    filename:join([RootDir,"bin"|?VAR]++Path);
+	_ ->
+	    filename:join([installation_root_dir(AppName,Rel)|?VAR]++Path)
+    end.
 
 
 make_scripts(AppName,Rel) ->
@@ -167,11 +225,158 @@ make_scripts(AppName,Rel) ->
 						"bin","erl"]),?NL]}
 		     end
 		     | Script2]}),
+
     Run = filename:join([Etc,Rel,to_string(AppName)++".run"]),
     ok = file:write_file(Run, list_to_binary(Script3)),
     ?dbg("wrote file: ~s\n", [Run]),
     ok = make_executable(Run).
 
+%% AppImage structure:
+%% AppRun           -- executable
+%% <app>.desktop    -- desktop file
+%% <app>.png        -- hmm???
+%% usr/share/icons/hicolor/<app>.png  -- hmm2??
+%% .DirIcon -> usr/share/icons/hicolor/<app>.png  (symlink)
+%%
+%% Make the AppRun start script, calling the <app>.apprun
+make_AppRun(AppName,Rel) ->
+    AppRunName = AppName++".apprun",
+    AppRun = filename:join(["$HERE"]++?ETC++[AppName,AppRunName]),
+    Script =
+	flat({script,
+	      [{r, ["#!/bin/sh\n"]},
+	       {r, ["SELF=$(readlink -f \"$0\")",?NL]},
+	       {r, ["HERE=${SELF%/*}",?NL]},
+	       {r, [AppRun," \"$@\"",?NL]}
+	      ]}),
+    AppRunFile = filename:join(installation_root_dir(AppName,Rel),"AppRun"),
+    ok = file:write_file(AppRunFile, list_to_binary(Script)),
+    ok = make_executable(AppRunFile).
+
+%% copy priv/<app>.desktop => AppDir/<app>.desktop
+copy_appimage_desktop(AppName, Rel) ->
+    Desktop = AppName ++ ".desktop",
+    AppDesktop0 = filename:join(code:priv_dir(AppName), Desktop),
+    AppDesktop  =
+	case filelib:is_regular(AppDesktop0) of
+	    false ->
+		filename:join(code:priv_dir(servator), "app.desktop");
+	    true ->
+		AppDesktop0
+	end,
+    DesktopDest1 = filename:join(installation_root_dir(AppName,Rel),Desktop),
+    copy_with_mode(AppDesktop, DesktopDest1),
+    ok.
+
+%% copy priv/<app>.appdata.xml => AppDir/usr/share/metainfo/<app>.appdata.xml
+copy_appimage_metadata(AppName, Rel) ->
+    DataFile = AppName ++ ".appdata.xml",
+    AppData0 = filename:join(code:priv_dir(AppName), DataFile),
+    AppData  =
+	case filelib:is_regular(AppData0) of
+	    false ->
+		filename:join(code:priv_dir(servator), "app.appdata.xml");
+	    true ->
+		AppData0
+	end,
+    Share = ["usr", "share", "metainfo"],
+    MetaDir = filename:join([installation_root_dir(AppName,Rel)|Share]),
+    make_dir(MetaDir),
+    AppDataDest = filename:join(MetaDir,DataFile),
+    copy_with_mode(AppData, AppDataDest),
+    ok.
+
+%% copy priv/<app>.png => AppDir/<app>.png
+%% copy priv/<app>.png => AppDir/usr/share/icons/hicolor/<app>.png
+%% symlink AppDir/.DirIcon -> usr/share/icons/hicolor/<app>.png
+copy_appimage_icon(AppName, Rel) ->
+    IconFile = AppName ++ ".png",
+    AppIcon0 = filename:join(code:priv_dir(AppName), IconFile),
+    AppIcon  =
+	case filelib:is_regular(AppIcon0) of
+	    false ->
+		filename:join(code:priv_dir(servator), "app.png");
+	    true ->
+		AppIcon0
+	end,
+
+    IconDest1 = filename:join(installation_root_dir(AppName,Rel),IconFile),
+    copy_with_mode(AppIcon, IconDest1),
+
+    Share = ["usr", "share", "icons", "hicolor"],
+    IconDir2  = filename:join([installation_root_dir(AppName,Rel)|Share]),
+    IconDest2 = filename:join(IconDir2,IconFile),
+
+    make_dir(IconDir2),
+    copy_with_mode(AppIcon, IconDest2),
+    IconDir3  = filename:join(Share),
+    IconDest3 = filename:join(IconDir3,IconFile),
+    symlink(IconDest3,
+	    filename:join(installation_root_dir(AppName,Rel),".DirIcon")),
+    ok.
+
+%% apprun script similar to regular run script but no user switch
+make_apprun(AppName,Rel) ->
+    RootVar = filename:join(?VAR ++ [AppName]),
+    RootEtc = filename:join(?ETC ++ [AppName]),
+    Etc = installation_etc_dir(AppName,Rel,[AppName]),
+    Var = installation_var_dir(AppName,Rel,[AppName]),
+    ok = make_dir(filename:join(Etc,Rel)),
+    ok = make_dir(Var),
+    ok = copy_configs(AppName,Rel),
+    Home = "export HOME=$PREFIX/"++RootEtc,
+    Script0 = shell_start_apprun(AppName,Rel,Home,true),
+    Script1 = tab(Script0),
+    Script2 = nl(Script1),
+    Script3 = flat({script,
+		    [
+		     {r,["#!/bin/sh\n"]},
+		     {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/../../..\" && pwd)`",?NL]},
+		     {r,["PREFIX=$THISDIR",?NL]},  %% maybe set to . or whatever
+		     {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
+		     {r,["    PREFIX=\"\"",?NL]},
+		     {r,["fi",?NL]},
+		     {r,["VSN=",Rel,?NL]},
+		     {r,["VAR=","$PREFIX","/",RootVar,?NL]},
+		     {r,["ETC=","$PREFIX","/",RootEtc,?NL]},
+		     {r,[Home,?NL]},
+		     if Rel =:= "" ->
+			     {r,["ERL=","erl",?NL]};
+			true ->
+			     {r,["ERL=",
+				 filename:join(["$VAR","rel","$VSN",
+						"bin","erl"]),?NL]}
+		     end
+		     | Script2]}),
+
+    AppRun = filename:join([Etc,to_string(AppName)++".apprun"]),
+    ok = file:write_file(AppRun, list_to_binary(Script3)),
+    ?dbg("wrote file: ~s\n", [AppRun]),
+    ok = make_executable(AppRun).    
+
+
+%% Make a starexec run script in bin/starexec_run_default
+%% Starexec scripts are called with two arguments
+%% $1 absolute path to input faile
+%% $2 absolute to output directory
+%% 
+make_starexec_run(AppName,Rel) ->
+    AppRunName = AppName++".apprun",
+    AppRun = filename:join(["$HERE"]++?ETC++[AppName,AppRunName]),
+    Default = "starexec_run_default",
+    Script =
+	flat({script,
+	      [{r, ["#!/bin/sh\n"]},
+	       {r, ["SELF=$(readlink -f \"$0\")",?NL]},
+	       {r, ["HERE=${SELF%/*}",?NL]},
+	       {r, [AppRun," --outdir=\"$1\" \"$2\"",?NL]}
+	      ]}),
+    StarExecFile = filename:join([installation_root_dir(AppName,Rel),"bin",
+				  Default]),
+    ok = make_dir(filename:join(installation_root_dir(AppName,Rel),"bin")),
+    ok = file:write_file(StarExecFile, list_to_binary(Script)),
+    ok = make_executable(StarExecFile).
+    
 %%
 %% Create a release file just containing the release version
 %% Installed under etc/erlang/<app>/rel/release
@@ -561,10 +766,26 @@ erl_start_arg(AppName) ->
     case get_started_args() of
 	[] ->
 	    [{"s", AppName}];  %% fallback
-	Args ->
-	    [{"s", string:join([to_string(A) || A <- S], " ")} ||
-		S <- Args ]
+	Args0 ->
+	    io:format("started args = ~w\n", [Args0]),
+	    Args = rewrite_started_args(Args0),
+	    io:format("new started args = ~w\n", [Args]),
+	    [{"s", As} || As <- Args ]
     end.
+
+rewrite_started_args([S=[servator,make_release,servator|_]|As]) ->
+    %% make release of servator it self...
+    [S | rewrite_started_args(As)];
+rewrite_started_args([_S=[servator,_|_]|As]) ->
+    %% make release of application, remove start of servator
+    rewrite_started_args(As);
+rewrite_started_args([[Mod,start0|Args]|As]) ->
+    %% dummy start function to prepare for application but no real start!
+    [[Mod,start|Args] | rewrite_started_args(As)];
+rewrite_started_args([S|As]) ->
+    [S | rewrite_started_args(As)];
+rewrite_started_args([]) ->
+    [].
 
 erl_stop_arg(_AppName) ->
     NodeName = atom_to_list(node()),
@@ -665,6 +886,17 @@ format_args(Args) ->
       fun({Opt,""}) ->
 	      io_lib:format("-~s ", [Opt]);
 	 ({Opt,Value}) when is_list(Value) ->
+	      try erlang:iolist_size(Value) of
+		  _N ->
+		      io_lib:format("-~s \"~s\" ", [Opt,Value])
+	      catch
+		  error:_ ->
+		      io_lib:format("-~s ~s ",
+				    [Opt,format_list(Value)])
+	      end;
+	 ({Opt,Value}) when is_list(Value) ->
+	      io_lib:format("-~s \"~s\" ", [Opt,Value]);
+	 ({Opt,Value}) when is_atom(Value) ->
 	      io_lib:format("-~s \"~s\" ", [Opt,Value]);
 	 ({Opt,Value}) when is_integer(Value) ->
 	      io_lib:format("-~s ~w ", [Opt,Value]);
@@ -673,6 +905,20 @@ format_args(Args) ->
 		({env,Env,Value}) when is_list(Value) ->
 	      io_lib:format("-env ~s \"~s\" ", [Env,Value])
       end, Args).
+
+format_list(List) ->
+    lists:join(" ", format_elems(List)).
+
+format_elems([A|As]) when is_atom(A) ->
+    [io_lib:format("\"~s\"", [A]) | format_elems(As)];
+format_elems([A|As]) when is_integer(A) ->
+    [io_lib:format("~w", [A]) | format_elems(As)];
+format_elems([A|As]) when is_float(A) ->
+    [io_lib_format:fwrite_g(A) | format_elems(As)];
+format_elems([A|As]) when is_list(A) ->
+    [io_lib:format("\"~s\"", [A]) | format_elems(As)];
+format_elems([]) ->
+    [].
 
 %% Generate the start command
 shell_start_command(AppName,Rel,Home) ->
@@ -755,6 +1001,25 @@ shell_status_command(AppName,Rel,Home) ->
       {r, ["fi"]}
      ]}.
 
+%% Generate the start command
+shell_start_apprun(AppName,Rel,_Home,Interactive) ->
+    Flags0 = erl_config_arg(AppName),
+    Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
+    Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
+    Start = erl_args(AppName, start, Flags2, Rel),
+    DefaultDir = "$VAR",
+    Pipe = if Interactive -> 
+		   "";
+	      true ->
+		   " > /dev/null 2>&1"
+	   end,
+    {script,
+     [
+      {r, ["(cd ", DefaultDir, "; ",
+	   "export ERL_CRASH_DUMP_SECONDS=0; ",
+	   Start, " -noshell", " -extra ", "\"\$@\"", Pipe, ")"]}
+     ]}.
+
 erl_args(AppName, Type, Flags, Rel) ->
     %% Args = init:get_arguments(),
     %% Name = proplists:get_value(progname, Args, "erl"),
@@ -813,17 +1078,25 @@ get_started_args() ->
     Lines = binary:split(Backtrace, <<"\n">>, [global]),
     extract_(Lines).
 
+extract_([<<"y(0)     []">>|Lines]) ->
+    extract_(Lines);
 extract_([<<"y(0)", TermData/binary>>|_Lines]) ->
-    {ok,Ts,_} = erl_scan:string(binary_to_list(TermData)),
-    Ts1 = translate_termdata(Ts),
-    {ok,[Term]} = erl_parse:parse_exprs(Ts1++[{dot,1}]),
-    State = erl_parse:normalise(Term),
-    Start = element(4, State),
-    Start;
+    parse_state(TermData);
+extract_([<<"y(1)", TermData/binary>>|_Lines]) ->
+    parse_state(TermData);
 extract_([_Line|Lines]) ->
     extract_(Lines);
 extract_([]) ->
     [].
+
+parse_state(Data) ->
+    {ok,Ts,_} = erl_scan:string(binary_to_list(Data)),
+    Ts1 = translate_termdata(Ts),
+    {ok,[Term]} = erl_parse:parse_exprs(Ts1++[{dot,1}]),
+    State = erl_parse:normalise(Term),
+    Start = element(4, State),
+    Start.
+
 
 %% translate scanned pids to placeholders
 %% translate <x.y.z> (as tokens) into dummy 'pid'
@@ -874,12 +1147,19 @@ copy_configs(AppName,Rel) ->
 	      fun({SrcConfig,DstFile}) ->
 		      case file:read_file(SrcConfig) of
 			  {ok,Bin} ->
-			      DstPath = installation_etc_dir(AppName,Rel,
+			      ConfigPath = installation_etc_dir(AppName,Rel,
+								[AppName,
+								 DstFile]),
+			      ok = file:write_file(ConfigPath, Bin),
+			      ?dbg("copied file: ~s to ~s\n",
+				   [SrcConfig, ConfigPath]),
+
+			      RelPath = installation_etc_dir(AppName,Rel,
 							     [AppName,Rel,
 							      DstFile]),
-			      ok = file:write_file(DstPath, Bin),
+			      ok = file:write_file(RelPath, Bin),
 			      ?dbg("copied file: ~s to ~s\n",
-				   [SrcConfig, DstPath]),
+				   [SrcConfig, RelPath]),
 			      ok;
 			  Error ->
 			      io:format("error copy file: ~s : ~p\n", 
@@ -1142,9 +1422,10 @@ make_release_dir(AppName, Rel) ->
 symlink(Exist, New) ->
     case file:make_symlink(Exist, New) of
 	ok -> ok;
+	{ok, _Link} -> ok;
 	{error,eexist} ->
 	    case file:read_link(New) of
-		{ok, Exist} -> ok;
+		{ok, _Link} -> ok;
 		Error -> Error
 	    end;
 	Error -> Error
