@@ -34,6 +34,7 @@
 -export([get_ebin_paths/1]).
 -export([get_lib_paths/1]).
 -export([make_args/3]).
+-export([get_config_filenames/0]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -114,7 +115,7 @@ make(AppName0,Rel0,BuildType) ->
     AppName = to_string(AppName0),
     Rel = to_string(Rel0),
     make_scripts(AppName,Rel),
-    make_apprun(AppName,Rel),
+    make_apprun(AppName,Rel,BuildType),
     if BuildType =:= appimage ->
 	    copy_appimage_desktop(AppName,Rel),
 	    copy_appimage_metadata(AppName,Rel),
@@ -127,13 +128,13 @@ make(AppName0,Rel0,BuildType) ->
 	    make_starexec_run(AppName,Rel);
        true ->
 	    make_osx_plist(AppName,Rel),
-	    make_init_d(AppName,Rel)
+	    make_init_d(AppName,Rel),
+	    ok = make_installation_script(AppName,Rel)
     end,
     case make_cookie_file(AppName,Rel) of
 	ok -> ok;
 	{error,nocookie} -> ok
     end,
-    ok = make_installation_script(AppName,Rel),
     ok = make_release_file(AppName,Rel),
     ok.
 
@@ -316,7 +317,7 @@ copy_appimage_icon(AppName, Rel) ->
     ok.
 
 %% apprun script similar to regular run script but no user switch
-make_apprun(AppName,Rel) ->
+make_apprun(AppName,Rel,BuildType) ->
     RootVar = filename:join(?VAR ++ [AppName]),
     RootEtc = filename:join(?ETC ++ [AppName]),
     Etc = installation_etc_dir(AppName,Rel,[AppName]),
@@ -325,7 +326,7 @@ make_apprun(AppName,Rel) ->
     ok = make_dir(Var),
     ok = copy_configs(AppName,Rel),
     Home = "export HOME=$PREFIX/"++RootEtc,
-    Script0 = shell_start_apprun(AppName,Rel,Home,true),
+    Script0 = shell_start_apprun(AppName,Rel,Home,true,BuildType),
     Script1 = tab(Script0),
     Script2 = nl(Script1),
     Script3 = flat({script,
@@ -363,19 +364,25 @@ make_apprun(AppName,Rel) ->
 make_starexec_run(AppName,Rel) ->
     AppRunName = AppName++".apprun",
     AppRun = filename:join(["$HERE"]++?ETC++[AppName,AppRunName]),
-    Default = "starexec_run_default",
-    Script =
-	flat({script,
-	      [{r, ["#!/bin/sh\n"]},
-	       {r, ["SELF=$(readlink -f \"$0\")",?NL]},
-	       {r, ["HERE=${SELF%/*}",?NL]},
-	       {r, [AppRun," --outdir=\"$1\" \"$2\"",?NL]}
-	      ]}),
-    StarExecFile = filename:join([installation_root_dir(AppName,Rel),"bin",
-				  Default]),
     ok = make_dir(filename:join(installation_root_dir(AppName,Rel),"bin")),
-    ok = file:write_file(StarExecFile, list_to_binary(Script)),
-    ok = make_executable(StarExecFile).
+    lists:foreach(
+      fun(Config) ->
+	      Script =
+		  flat({script,
+			[{r, ["#!/bin/sh\n"]},
+			 {r, ["SELF=$(readlink -f \"$0\")",?NL]},
+			 {r, ["HERE=${SELF%/*}",?NL]},
+			 {r, ["export CONFIGFILE=", Config, ?NL]},
+			 {r, [AppRun," --outdir=\"$1\" \"$2\"",?NL]}
+			]}),
+	      Run = filename:basename(Config, ".config"),
+	      RunFile = "starexec_run_"++Run,
+	      StarExecFile = filename:join(
+			       [installation_root_dir(AppName,Rel),"bin",
+				RunFile]),
+	      ok = file:write_file(StarExecFile, list_to_binary(Script)),
+	      ok = make_executable(StarExecFile)
+      end, get_config_filenames()).
     
 %%
 %% Create a release file just containing the release version
@@ -1002,8 +1009,13 @@ shell_status_command(AppName,Rel,Home) ->
      ]}.
 
 %% Generate the start command
-shell_start_apprun(AppName,Rel,_Home,Interactive) ->
-    Flags0 = erl_config_arg(AppName),
+shell_start_apprun(AppName,Rel,_Home,Interactive,BuildType) ->
+    Flags0 = 
+	if BuildType =:= starexec ->
+		" -config $ETC/\$CONFIGFILE";
+	   true ->
+		erl_config_arg(AppName)
+	end,
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
     Start = erl_args(AppName, start, Flags2, Rel),
