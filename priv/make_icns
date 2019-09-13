@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+#  create ApplicationIcon.icns file from svg/png
+#
+ICONFILE=$1
+
+mkdir -p AppIcon.iconset
+convert -scale 16x16 $ICONFILE AppIcon.iconset/icon_16x16.png
+convert -scale 32x32 $ICONFILE AppIcon.iconset/icon_16x16@2x.png
+convert -scale 32x32 $ICONFILE AppIcon.iconset/icon_32x32.png
+convert -scale 64x64 $ICONFILE AppIcon.iconset/icon_32x32@2x.png
+convert -scale 128x128 $ICONFILE AppIcon.iconset/icon_128x128.png
+convert -scale 256x256 $ICONFILE AppIcon.iconset/icon_128x128@2x.png
+convert -scale 256x256 $ICONFILE AppIcon.iconset/icon_256x256.png
+convert -scale 512x512 $ICONFILE AppIcon.iconset/icon_256x256@2x.png
+convert -scale 512x512 $ICONFILE AppIcon.iconset/icon_512x512.png
+convert -scale 1024x1024 $ICONFILE AppIcon.iconset/icon_512x512@2x.png
+iconutil -c icns --output AppIcon.icns ./AppIcon.iconset

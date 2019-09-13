@@ -7,6 +7,7 @@
 -export([make_soft_release/1]).
 -export([make_appimage/1]).
 -export([make_starexec/1]).
+-export([make_osxapp/1]).
 -export([make_release/1, make_release/3]).
 
 
@@ -101,6 +102,14 @@ make_starexec(AppName) ->
     {ok,Rel} = application:get_key(AppName, vsn),
     make_release(AppName, Rel, starexec).
 
+make_osxapp([AppName]) when is_atom(AppName) -> %% from shell 
+    make_osxapp(AppName);
+make_osxapp(AppName) ->
+    io:format("Make a mac os x app ~p\n", [AppName]),
+    application:load(AppName),
+    {ok,Rel} = application:get_key(AppName, vsn),
+    make_release(AppName, Rel, osxapp).
+
 make_release(AppName0, Rel0, BuildType) ->
     put(build_type, BuildType),  %% fixme: sloppy!
     AppName = to_string(AppName0),
@@ -126,6 +135,10 @@ make(AppName0,Rel0,BuildType) ->
     end,
     if BuildType =:= starexec ->
 	    make_starexec_run(AppName,Rel);
+       BuildType =:= osxapp ->
+	    make_osx_plist(AppName,Rel),
+	    make_osx_info_plist(AppName,Rel),
+	    make_osxapp_exec(AppName,Rel);
        true ->
 	    make_osx_plist(AppName,Rel),
 	    make_init_d(AppName,Rel),
@@ -144,6 +157,8 @@ installation_root_dir(AppName,Rel) ->
     case get(build_type) of %% fixme: sloppy!
 	appimage ->
 	    AppName ++ ".AppDir";
+	osxapp ->
+	    string:titlecase(AppName) ++ ".app";
 	_ ->
 	    AppName ++ "-" ++ Rel
     end.
@@ -155,6 +170,8 @@ installation_etc_dir(AppName,Rel,Path) ->
     case get(build_type) of %% fixme: sloppy
 	starexec ->
 	    filename:join([RootDir,"bin"|?ETC]++Path);
+	osxapp ->
+	    filename:join([RootDir,"Contents","MacOS"|?ETC]++Path);
 	_ ->
 	    filename:join([RootDir|?ETC]++Path)
     end.
@@ -166,10 +183,11 @@ installation_var_dir(AppName,Rel,Path) ->
     case get(build_type) of %% fixme: sloppy
 	starexec ->
 	    filename:join([RootDir,"bin"|?VAR]++Path);
+	osxapp ->
+	    filename:join([RootDir,"Contents","MacOS"|?VAR]++Path);
 	_ ->
 	    filename:join([installation_root_dir(AppName,Rel)|?VAR]++Path)
     end.
-
 
 make_scripts(AppName,Rel) ->
     RootVar = filename:join(?VAR ++ [AppName]),
@@ -210,7 +228,7 @@ make_scripts(AppName,Rel) ->
 		    [
 		     {r,["#!/bin/sh\n"]},
 		     {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/../../..\" && pwd)`",?NL]},
-		     {r,["PREFIX=$THISDIR",?NL]},  %% maybe set to . or whatever
+		     {r,["PREFIX=$THISDIR",?NL]},
 		     {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
 		     {r,["    PREFIX=\"\"",?NL]},
 		     {r,["fi",?NL]},
@@ -242,12 +260,15 @@ make_scripts(AppName,Rel) ->
 %% Make the AppRun start script, calling the <app>.apprun
 make_AppRun(AppName,Rel) ->
     AppRunName = AppName++".apprun",
-    AppRun = filename:join(["$HERE"]++?ETC++[AppName,AppRunName]),
+    AppRun = filename:join(["$PREFIX"]++?ETC++[AppName,AppRunName]),
     Script =
 	flat({script,
 	      [{r, ["#!/bin/sh\n"]},
-	       {r, ["SELF=$(readlink -f \"$0\")",?NL]},
-	       {r, ["HERE=${SELF%/*}",?NL]},
+	       {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR\" && pwd)`",?NL]},
+	       {r,["PREFIX=$THISDIR",?NL]},
+	       {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
+	       {r,["    PREFIX=\"\"",?NL]},
+	       {r,["fi",?NL]},
 	       {r, [AppRun," \"$@\"",?NL]}
 	      ]}),
     AppRunFile = filename:join(installation_root_dir(AppName,Rel),"AppRun"),
@@ -363,15 +384,18 @@ make_apprun(AppName,Rel,BuildType) ->
 %% 
 make_starexec_run(AppName,Rel) ->
     AppRunName = AppName++".apprun",
-    AppRun = filename:join(["$HERE"]++?ETC++[AppName,AppRunName]),
+    AppRun = filename:join(["$PREFIX"]++?ETC++[AppName,AppRunName]),
     ok = make_dir(filename:join(installation_root_dir(AppName,Rel),"bin")),
     lists:foreach(
       fun(Config) ->
 	      Script =
 		  flat({script,
 			[{r, ["#!/bin/sh\n"]},
-			 {r, ["SELF=$(readlink -f \"$0\")",?NL]},
-			 {r, ["HERE=${SELF%/*}",?NL]},
+			 {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR\" && pwd)`",?NL]},
+			 {r,["PREFIX=$THISDIR",?NL]},
+			 {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
+			 {r,["    PREFIX=\"\"",?NL]},
+			 {r,["fi",?NL]},
 			 {r, ["export CONFIGFILE=", Config, ?NL]},
 			 {r, [AppRun," --outdir=\"$1\" \"$2\"",?NL]}
 			]}),
@@ -392,6 +416,38 @@ make_release_file(AppName,Rel) ->
     ReleaseFile = installation_etc_dir(AppName,Rel,
 				       [AppName,Rel,"release"]),
     file:write_file(ReleaseFile, list_to_binary(Rel)).
+
+%% Mac OS X app structure:
+%% <App>.app
+%%   Icon\r             -- resource fork Icon ...
+%%   Contents
+%%     Info.plist       -- 
+%%     PkgInfo          -- needed for what?
+%%     Resources        -- 
+%%       AppIcon.icns
+%%     MacOS
+%%       <App>          -- executable
+%%       etc/
+%%       var/
+%%
+make_osxapp_exec(AppName,Rel) ->
+    AppRunName = AppName++".apprun",
+    AppRun = filename:join(["$PREFIX"]++?ETC++[AppName,AppRunName]),
+    Script =
+	flat({script,
+	      [{r, ["#!/bin/sh\n"]},
+	       {r,["THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR\" && pwd)`",?NL]},
+	       {r,["PREFIX=$THISDIR",?NL]},
+	       {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
+	       {r,["    PREFIX=\"\"",?NL]},
+	       {r,["fi",?NL]},
+	       {r, [AppRun," \"$@\"",?NL]}
+	      ]}),
+    AppName1 = string:titlecase(AppName),
+    AppRunFile = filename:join([installation_root_dir(AppName,Rel),
+				"Contents","MacOS",AppName1]),
+    ok = file:write_file(AppRunFile, list_to_binary(Script)),
+    ok = make_executable(AppRunFile).
 
 %%
 %% Make an installation script
@@ -516,6 +572,44 @@ make_installation_script(AppName, Rel) when
     ok = file:write_file(Filename, list_to_binary(Script2)),
     ok = make_executable(Filename),
     ok.
+
+make_osx_info_plist(AppName,Rel) ->
+    Script1 = info_plist(AppName,Rel),
+    Script2 = nl(Script1),
+    Script3 = flat(Script2),
+    PList = filename:join([installation_root_dir(AppName,Rel),
+			   "Contents","Info.plist"]),
+    ok = file:write_file(PList, list_to_binary(Script3)),
+    ?dbg("wrote file: ~s\n", [PList]),
+    ok.
+
+info_plist(AppName,Rel) ->
+    App = string:titlecase(AppName),
+    Script =
+[
+ {r, ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>"]},
+ {r, ["<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"]},
+ {r, ["<plist version=\"1.0\">"]},
+ {r, [?TAB,"<dict>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleExecutable</key>"]},
+ {r, [?TAB,?TAB, "<string>", App, "</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleSignature</key>"]},
+ {r, [?TAB,?TAB, "<string>", string:uppercase(App),"</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundlePackageType</key>"]},
+ {r, [?TAB,?TAB, "<string>APPL</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleVersion</key>"]},
+ {r, [?TAB,?TAB, "<string>", Rel, "</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleIdentifier</key>"]},
+ {r, [?TAB,?TAB, "<string>org.erlang.apps."++AppName++"</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleDisplayName</key>"]},
+ {r, [?TAB,?TAB, "<string>",App,"</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleName</key>"]},
+ {r, [?TAB,?TAB, "<string>",App,"</string>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleIconName</key>"]},
+ {r, [?TAB,?TAB, "<string>AppIcon.icns</string>"]},
+ {r, [?TAB, "</dict>"]},
+ {r, ["</plist>"]}],
+    {script,Script}.
 
 %% Make the serv plist to use with mac os, replace the start/stop
 %% sudo launchctl load /etc/erlang/<app>/<app>.plist 
