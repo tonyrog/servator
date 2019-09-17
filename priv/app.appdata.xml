@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-	<id>app</id>
+	<id>${APP}</id>
 	<metadata_license>MIT</metadata_license>
 	<project_license>MIT</project_license>
-	<name>App</name>
+	<name>${APPNAME}</name>
 	<summary>Application</summary>
 	<description>
-		<p>App is a template meta data</p>
+		<p>template meta data</p>
 	</description>
-	<launchable type="desktop-id">app.desktop</launchable>
-	<url type="homepage">http://rogvall.se/apps/app</url>
+	<launchable type="desktop-id">${APP}.desktop</launchable>
+	<url type="homepage">http://erlang.org/apps/${APP}</url>
 	<screenshots>
 		<screenshot type="default">
-			<image>http://rogvall.se/apps/app/app.png</image>
+			<image>http://erlang.org/apps/${APP}/${APP}.png</image>
 		</screenshot>
 	</screenshots>
 	<provides>
-		<id>app.desktop</id>
+		<id>${APP}.desktop</id>
 	</provides>
 </component>

@@ -255,6 +255,7 @@ make_scripts(AppName,Rel) ->
 %% <app>.desktop    -- desktop file
 %% <app>.png        -- hmm???
 %% usr/share/icons/hicolor/<app>.png  -- hmm2??
+%% usr/share/metainfo/<app>.appdata.xml
 %% .DirIcon -> usr/share/icons/hicolor/<app>.png  (symlink)
 %%
 %% Make the AppRun start script, calling the <app>.apprun
@@ -279,33 +280,38 @@ make_AppRun(AppName,Rel) ->
 copy_appimage_desktop(AppName, Rel) ->
     Desktop = AppName ++ ".desktop",
     AppDesktop0 = filename:join(code:priv_dir(AppName), Desktop),
-    AppDesktop  =
+    {AppDesktop,Replace}  =
 	case filelib:is_regular(AppDesktop0) of
 	    false ->
-		filename:join(code:priv_dir(servator), "app.desktop");
+		{filename:join(code:priv_dir(servator), "app.desktop"),
+		 [{"\\${APP}", AppName, [global]},
+		  {"\\${APPNAME}", string:titlecase(AppName),[global]}]};
 	    true ->
-		AppDesktop0
+		{AppDesktop0, []}
 	end,
     DesktopDest1 = filename:join(installation_root_dir(AppName,Rel),Desktop),
-    copy_with_mode(AppDesktop, DesktopDest1),
+    copy_replace(AppDesktop, DesktopDest1, Replace),
     ok.
 
 %% copy priv/<app>.appdata.xml => AppDir/usr/share/metainfo/<app>.appdata.xml
+%% if appdata does not exist a template is copied from servator
 copy_appimage_metadata(AppName, Rel) ->
     DataFile = AppName ++ ".appdata.xml",
     AppData0 = filename:join(code:priv_dir(AppName), DataFile),
-    AppData  =
+    {AppData,Replace}  =
 	case filelib:is_regular(AppData0) of
 	    false ->
-		filename:join(code:priv_dir(servator), "app.appdata.xml");
+		{filename:join(code:priv_dir(servator), "app.appdata.xml"),
+		 [{"\\${APP}", AppName, [global]},
+		  {"\\${APPNAME}", string:titlecase(AppName),[global]}]};
 	    true ->
-		AppData0
+		{AppData0, []}
 	end,
     Share = ["usr", "share", "metainfo"],
     MetaDir = filename:join([installation_root_dir(AppName,Rel)|Share]),
     make_dir(MetaDir),
     AppDataDest = filename:join(MetaDir,DataFile),
-    copy_with_mode(AppData, AppDataDest),
+    copy_replace(AppData, AppDataDest, Replace),
     ok.
 
 %% copy priv/<app>.png => AppDir/<app>.png
@@ -1592,6 +1598,8 @@ copy_with_mode(Src, Dst) ->
 
 %% Copy Src to Dst line by line and do regular expression replace 
 %% while doing it.
+copy_replace(Src, Dst, []) ->
+    copy_with_mode(Src, Dst);
 copy_replace(Src, Dst, ReplaceList) ->
     {ok,S} = file:open(Src, [read, raw, {read_ahead, 1024}]),
     {ok,D} = file:open(Dst, [write, raw]),
