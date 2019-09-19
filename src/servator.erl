@@ -1336,7 +1336,7 @@ check_config_files([]) ->
 %%  read root from init:get_arguments()
 %%
 copy_erlang_erts(AppName,Rel) ->
-    {Exe,Dll,Type} = 
+    {Type,Exe,Dll} = 
 	case os:type() of
 	    {win32,nt} -> {win32,".exe", ".dll"};
 	    {T,_} -> {T, "", ""}
