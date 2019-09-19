@@ -806,7 +806,8 @@ su_command() ->
     User = os:getenv("USER"),
     case os:type() of
 	{unix,darwin} ->  "su " ++ User ++ " -c ";
-	{unix,_} -> "su - " ++ User  ++ " -c "
+	{unix,_} -> "su - " ++ User  ++ " -c ";
+	{win32,nt} -> ""
     end.
 
 %% Argument to set node name
