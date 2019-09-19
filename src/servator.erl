@@ -1612,8 +1612,9 @@ copy_dir(Src, Dst) ->
     end.
 
 copy_with_mode(Src, Dst) ->
+    ?dbg("copy file ~s to ~s\n", [Src, Dst]),
     {ok,_Size} = file:copy(Src, Dst),
-    ?dbg("copied file ~s to ~s [~w bytes]\n", [Src, Dst, _Size]),
+    ?dbg("copied [~w bytes]\n", [_Size]),
     {ok,Info} = file:read_file_info(Src),
     file:change_mode(Dst, Info#file_info.mode).
 
