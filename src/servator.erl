@@ -1336,9 +1336,14 @@ check_config_files([]) ->
 %%  read root from init:get_arguments()
 %%
 copy_erlang_erts(AppName,Rel) ->
+    {Exe,Dll,Type} = 
+	case os:type() of
+	    {win32,nt} -> {win32,".exe", ".dll"};
+	    {T,_} -> {T, "", ""}
+	end,
     Beam = case erlang:system_info(smp_support) of
-	       true -> "beam.smp";
-	       false -> "beam"
+	       true -> "beam.smp"++Dll;
+	       false -> "beam"++Dll
 	   end,
     Args = init:get_arguments(),
     [Root] = proplists:get_value(root, Args),
@@ -1348,18 +1353,33 @@ copy_erlang_erts(AppName,Rel) ->
 				  [AppName, ErtsVsn, "bin"]),
     ok = make_dir(DstDir),
 
-    OtpRelease = list_to_integer(erlang:system_info(otp_release)),
-    ChildSetup = if OtpRelease >= 19 ->
-			 "erl_child_setup";
-		    true ->
-			 "child_setup"
-		 end,
+    ChildSetup = 
+	if Type =:= win32 ->
+		[];
+	   true ->
+		OtpRelease = list_to_integer(erlang:system_info(otp_release)),
+		if OtpRelease >= 19 ->
+			["erl_child_setup"];
+		   true ->
+			["child_setup"]
+		end
+	end,
+    Werl = 
+	if Type =:= win32 ->
+		["werl.exe"];
+	   true ->
+		[]
+	end,
     lists:foreach(
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
 			     filename:join([DstDir, File]))
-      end, [Beam, ChildSetup, "epmd", "heart", "inet_gethost",
-	    "erlexec", "escript"]).
+      end, [Beam] ++ ChildSetup ++ Werl ++
+	  ["epmd"++Exe, 
+	   "heart"++Exe, 
+	   "inet_gethost"++Exe, 
+	   "erlexec"++Exe, 
+	   "escript"++Exe]).
 
 %% get all applications that App depend on
 depend_applications(AppName) when is_list(AppName) ->
