@@ -1378,7 +1378,7 @@ copy_erlang_erts(AppName,Rel) ->
 	  ["epmd"++Exe, 
 	   "heart"++Exe, 
 	   "inet_gethost"++Exe, 
-	   "erlexec"++Exe, 
+	   "erlexec"++Dll, 
 	   "escript"++Exe]).
 
 %% get all applications that App depend on
