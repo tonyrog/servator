@@ -1,0 +1,5 @@
+#!/bin/sh
+#  Create windows ICO file from svg/png
+ICONFILE=$1
+NAME=`basename $ICONFILE .png`
+convert $ICONFILE -define icon:auto-resize=64,48,32,16 $NAME.ico
