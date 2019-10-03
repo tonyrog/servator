@@ -1586,30 +1586,33 @@ copy_erts_scripts(AppName,Rel) ->
 		     filename:join(RelDir, "bin")
 	     end,
     %% copy scripts
-    StartScript = if Type =:= win32 -> [];
-		     true -> ["start.script"]
-		  end,
+    CondScript = if Type =:= win32 -> ["erl"++Exe];
+		    true -> ["start.script"]
+		 end,
     lists:foreach(
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
 			     filename:join([BinDir, File]))
-      end, ["erlc"++Exe, "escript"++Exe, "start.boot"]++StartScript),
+      end, ["erlc"++Exe, "escript"++Exe, "start.boot"]++CondScript),
 
-    %% copy "erl" and patch location
-    %% ROOTDIR=filename:join("/", RelDir),
-    ROOTDIR="$THISDIR",
-    BINDIR = case get_build_type() of
-		 appimage -> "$ROOTDIR/bin";
-		 osxapp   -> "$ROOTDIR/bin";
-		 win32app -> "$ROOTDIR/bin";
-		 _ -> "$ROOTDIR/erts/bin"
-	     end,
-    THISDIR="THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/..\" \\&\\& pwd)`",
-    copy_replace(filename:join(SrcDir, "erl"),
-		 filename:join(BinDir, "erl"),
-		 [{"ROOTDIR=.*", THISDIR++"\n"++"ROOTDIR=\""++ROOTDIR++"\"",[]},
-		  {"BINDIR=.*", "BINDIR="++BINDIR, []}
-		 ]).
+    if Type =/= win32 ->
+	    %% copy "erl" and patch location
+	    %% ROOTDIR=filename:join("/", RelDir),
+	    ROOTDIR="$THISDIR",
+	    BINDIR = case get_build_type() of
+			 appimage -> "$ROOTDIR/bin";
+			 osxapp   -> "$ROOTDIR/bin";
+			 _ -> "$ROOTDIR/erts/bin"
+		     end,
+	    THISDIR="THISDIR=`dirname \"$0\"`\nTHISDIR=`(cd \"$THISDIR/..\" \\&\\& pwd)`",
+	    copy_replace(filename:join(SrcDir, "erl"),
+			 filename:join(BinDir, "erl"),
+			 [{"ROOTDIR=.*", THISDIR++"\n"++"ROOTDIR=\""++ROOTDIR++"\"",[]},
+			  {"BINDIR=.*", "BINDIR="++BINDIR, []}
+			 ]);
+       true ->
+	    ok
+    end.
 
 make_release_dir(AppName, Rel) ->
     case get_build_type() of
