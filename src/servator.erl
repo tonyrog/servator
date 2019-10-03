@@ -1569,6 +1569,11 @@ copy_otp_applications(AppName,Rel) ->
       end, otp_applications()).
 
 copy_erts_scripts(AppName,Rel) ->
+    {_Type,Exe,_Dll} = 
+	case os:type() of
+	    {win32,nt} -> {win32,".exe", ".dll"};
+	    {T,_} -> {T, "", ""}
+	end,
     RelDir = installation_var_dir(AppName,Rel,[AppName, "rel", Rel]),
     Args = init:get_arguments(),
     [Root] = proplists:get_value(root, Args),
@@ -1585,7 +1590,7 @@ copy_erts_scripts(AppName,Rel) ->
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
 			     filename:join([BinDir, File]))
-      end, ["erlc", "escript", "start.boot", "start.script" ]),
+      end, ["erlc"++Exe, "escript"++Exe, "start.boot", "start.script" ]),
 
     %% copy "erl" and patch location
     %% ROOTDIR=filename:join("/", RelDir),
