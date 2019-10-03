@@ -1569,7 +1569,7 @@ copy_otp_applications(AppName,Rel) ->
       end, otp_applications()).
 
 copy_erts_scripts(AppName,Rel) ->
-    {_Type,Exe,_Dll} = 
+    {Type,Exe,_Dll} = 
 	case os:type() of
 	    {win32,nt} -> {win32,".exe", ".dll"};
 	    {T,_} -> {T, "", ""}
@@ -1586,11 +1586,14 @@ copy_erts_scripts(AppName,Rel) ->
 		     filename:join(RelDir, "bin")
 	     end,
     %% copy scripts
+    StartScript = if Type =:= win32 -> [];
+		     true -> ["start.script"]
+		  end,
     lists:foreach(
       fun(File) ->
 	      copy_with_mode(filename:join([SrcDir, File]),
 			     filename:join([BinDir, File]))
-      end, ["erlc"++Exe, "escript"++Exe, "start.boot", "start.script" ]),
+      end, ["erlc"++Exe, "escript"++Exe, "start.boot"]++StartScript),
 
     %% copy "erl" and patch location
     %% ROOTDIR=filename:join("/", RelDir),
