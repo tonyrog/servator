@@ -118,3 +118,48 @@ this directory.
 ## Log files
 
 Log files are located in var/erlang/<app>/log
+
+# AppImage (make_appimage)
+
+	<app>.AppDir/AppRun          -- executable
+	    <app>.desktop            -- desktop file
+        <app>.png                -- hmm???
+        usr/share/icons/hicolor/<app>.png  -- hmm2??
+        usr/share/metainfo/<app>.appdata.xml
+        .DirIcon -> usr/share/icons/hicolor/<app>.png  (symlink)
+		<app>.config
+		bin
+		lib
+
+# Win32 (make_win32app)
+
+	<app>-<vsn>/App.exe          -- executable wrapper
+		<app>.config	
+        bin                      --	erlang binaries werl ..
+		lib                      -- erlang libraries and apps
+
+# Mac OS X (make_osxapp)
+
+    <App>.app
+        Icon\r
+	    Contents
+		    Info.plist
+			PkgInfo
+			Resources
+		         AppIcon.icns
+            MacOS
+				<App>             -- Executable (script)
+				<app>.config
+				bin
+				lib
+
+# Starexec (make_starexec)
+
+    <app>-vsn
+	    bin
+		    starexec_run_default
+		    starexec_run_conf1
+			...
+		    starexec_run_confN
+			<erlang-executables>
+		 lib
