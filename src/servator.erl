@@ -13,6 +13,7 @@
 
 
 -export([system_applications/0]).
+-export([otp_applications/0]).
 -export([user_applications/0, user_applications/1]).
 -export([depend_applications/1, depend_user_applications/1]).
 -export([get_started_applications/0]).
@@ -317,8 +318,16 @@ make_scripts(AppName,Rel) ->
 %%
 %% Make the AppRun start script, calling the <app>.apprun
 make_appimage_AppRun(AppName,Rel) ->
-    Pipe = erl_ignore_stdout(),
-    StartArgs = erl_noshell_arg()++make_args(start, AppName, Rel),
+    Detached = erl_detached_arg(),
+    NoShell  = erl_noshell_arg(),
+    NoInput  = erl_noinput_arg(),
+    StartArgs = NoShell++NoInput++Detached++make_args(start, AppName, Rel),
+    Pipe = if Detached =/= [] ->
+		   erl_ignore_stdout();
+	      true ->
+		   ""
+	   end,
+    io:format("StartArgs = ~p\n", [StartArgs]),
     Script =
 	flat({script,
 	      [{r, ["#!/bin/sh\n"]},
@@ -946,6 +955,30 @@ erl_noshell_arg() ->
 	    []
     end.
 
+erl_noinput_arg() ->
+    case init:get_argument(noinput) of
+	{ok,[[]]} ->
+	    [{"noinput",""}];
+	_ ->
+	    []
+    end.
+
+%% -detached is not present in the argument list for
+%% some reason, so we use -wx | -epx when we want to start
+%% application that are detached
+erl_detached_arg() ->
+    case init:get_argument(wx) of
+	{ok,[[]]} ->
+	    [{"detached",""}];
+	_ ->
+	    case init:get_argument(epx) of
+		{ok,[[]]} ->
+		    [{"detached",""}];
+		_ ->	
+		    []
+	    end
+    end.
+
 %% ignore stdout and stderr
 erl_ignore_stdout() ->
     case init:get_argument(noshell) of
@@ -978,6 +1011,9 @@ rewrite_started_args([S=[servator,make_release,servator|_]|As]) ->
     [S | rewrite_started_args(As)];
 rewrite_started_args([_S=[servator,_|_]|As]) ->
     %% make release of application, remove start of servator
+    rewrite_started_args(As);
+rewrite_started_args([_S=[erlang,halt|_]|As]) ->
+    %% remove halt, used in make files, not needed at runtime?
     rewrite_started_args(As);
 rewrite_started_args([[Mod,start0|Args]|As]) ->
     %% dummy start function to prepare for application but no real start!
@@ -1477,19 +1513,24 @@ copy_erlang_erts(AppName,Rel) ->
 depend_applications(AppName) when is_list(AppName) ->
     depend_applications(list_to_atom(AppName));
 depend_applications(App) when is_atom(App) ->
-    {ok,Apps} = application:get_key(App, applications),
-    depend_applications_(Apps, []).
+    depend_applications_(applications(App), []).
 
 depend_applications_([App|Apps], Acc) ->
     case lists:member(App, Acc) of
 	true ->
 	    depend_applications_(Apps, Acc);
 	false ->
-	    {ok,Deps} = application:get_key(App, applications),
-	    depend_applications_(Apps++Deps, [App|Acc])
+	    Ds = applications(App),
+	    depend_applications_(Apps++Ds, [App|Acc])
     end;
 depend_applications_([], Acc) ->
     Acc.
+
+applications(App) ->
+    case application:get_key(App, applications) of
+	undefined -> [];
+	{ok,Deps} -> Deps
+    end.
 
 %% get all applications that App depend on,
 %% but filter out all system applications 
