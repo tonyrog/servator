@@ -338,7 +338,7 @@ make_appimage_AppRun(AppName,Rel) ->
 	       {r,["fi",?NL]},
 	       {r,["export HOME=$PREFIX",?NL]},
 	       {r,["unset ERL_LIBS",?NL]},
-	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName),
+	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), " ",
 		    format_args(StartArgs),
 		    " -extra \"$@\"", Pipe, ?NL]}
 	      ]}),
@@ -520,7 +520,7 @@ make_osxapp_exec(AppName,Rel) ->
 	       {r,["fi",?NL]},
 	       {r,["export HOME=$PREFIX",?NL]},
 	       {r,["unset ERL_LIBS",?NL]},
-	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName),
+	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), " ",
 		    format_args(StartArgs),
 		    " -extra \"$@\"", Pipe, ?NL]}
 	      ]}),
@@ -1389,16 +1389,16 @@ copy_configs(AppName,Rel) ->
 		      case file:read_file(SrcConfig) of
 			  {ok,Bin} ->
 			      ConfigPath = installation_etc_dir(AppName,Rel,
-								[AppName,
-								 DstFile]),
-			      ok = file:write_file(ConfigPath, Bin),
+								[AppName]),
+			      ConfigFile = filename:join(ConfigPath,DstFile),
+			      io:format("Config path = ~p\n", [ConfigFile]),
+			      ok = file:write_file(ConfigFile, Bin),
 			      ?dbg("copied file: ~s to ~s\n",
-				   [SrcConfig, ConfigPath]),
-
+				   [SrcConfig, ConfigFile]),
 			      RelPath = installation_etc_dir(AppName,Rel,
-							     [AppName,Rel,
-							      DstFile]),
-			      ok = file:write_file(RelPath, Bin),
+							     [AppName,Rel]),
+			      RConfigFile = filename:join(RelPath,DstFile),
+			      ok = file:write_file(RConfigFile, Bin),
 			      ?dbg("copied file: ~s to ~s\n",
 				   [SrcConfig, RelPath]),
 			      ok;
@@ -1411,7 +1411,14 @@ copy_configs(AppName,Rel) ->
     end.
 
 get_target_config_files() ->
-    [filename:join("$ETC",filename:basename(File)) || 
+    TargetDir = case get_build_type() of
+		    starexec -> "$ETC";
+		    osxapp   -> "$PREFIX/Contents/Resources";
+		    appimage -> "$PREFIX";
+		    win32app -> "$PREFIX";
+		    _ -> "$ETC"
+		end,
+    [filename:join(TargetDir,filename:basename(File)) || 
 	File <- get_config_files()].
 
 get_config_filenames() ->
