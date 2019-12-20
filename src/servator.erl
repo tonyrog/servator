@@ -493,7 +493,6 @@ make_release_file(AppName,Rel) ->
 
 %% Mac OS X app structure:
 %% <App>.app
-%%   Icon\r             -- resource fork Icon ...
 %%   Contents
 %%     Info.plist       -- 
 %%     PkgInfo          -- needed for what?
@@ -693,7 +692,7 @@ info_plist(AppName,Rel) ->
  {r, [?TAB,?TAB, "<string>",App,"</string>"]},
  {r, [?TAB,?TAB, "<key>CFBundleName</key>"]},
  {r, [?TAB,?TAB, "<string>",App,"</string>"]},
- {r, [?TAB,?TAB, "<key>CFBundleIconName</key>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleIconFile</key>"]},
  {r, [?TAB,?TAB, "<string>AppIcon.icns</string>"]},
  {r, [?TAB, "</dict>"]},
  {r, ["</plist>"]}],
