@@ -521,7 +521,7 @@ make_osxapp_exec(AppName,Rel) ->
 	       {r,["unset ERL_LIBS",?NL]},
 	       {r,["export WX_APP_TITLE=",?Q,AppName1,?Q,?NL]},
 	       {r,["export WX_APP_ICON=",
-		   ?Q,"$PREFIX/../Resources/",AppName++".png",?Q]},
+		   ?Q,"$PREFIX/../Resources/",AppName++".png",?Q],?NL},
 	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), " ",
 		    format_args(StartArgs),
 		    " -extra \"$@\"", Pipe, ?NL]}
