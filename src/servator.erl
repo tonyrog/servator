@@ -39,7 +39,8 @@
 -export([make_args/3]).
 -export([get_config_filenames/0]).
 
--compile(export_all).
+%% -compile(export_all).
+
 -include_lib("kernel/include/file.hrl").
 
 
