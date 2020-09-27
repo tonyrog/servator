@@ -496,7 +496,6 @@ make_release_file(AppName,Rel) ->
 
 %% Mac OS X app structure:
 %% <App>.app
-%%   Icon\r             -- resource fork Icon ...
 %%   Contents
 %%     Info.plist       -- 
 %%     PkgInfo          -- needed for what?
@@ -525,7 +524,7 @@ make_osxapp_exec(AppName,Rel) ->
 	       {r,["unset ERL_LIBS",?NL]},
 	       {r,["export WX_APP_TITLE=",?Q,AppName1,?Q,?NL]},
 	       {r,["export WX_APP_ICON=",
-		   ?Q,"$PREFIX/../Resources/",AppName++".png",?Q]},
+		   ?Q,"$PREFIX/../Resources/",AppName++".png",?Q,?NL]},
 	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), " ",
 		    format_args(StartArgs),
 		    " -extra \"$@\"", Pipe, ?NL]}
@@ -696,7 +695,7 @@ info_plist(AppName,Rel) ->
  {r, [?TAB,?TAB, "<string>",App,"</string>"]},
  {r, [?TAB,?TAB, "<key>CFBundleName</key>"]},
  {r, [?TAB,?TAB, "<string>",App,"</string>"]},
- {r, [?TAB,?TAB, "<key>CFBundleIconName</key>"]},
+ {r, [?TAB,?TAB, "<key>CFBundleIconFile</key>"]},
  {r, [?TAB,?TAB, "<string>AppIcon.icns</string>"]},
  {r, [?TAB, "</dict>"]},
  {r, ["</plist>"]}],
