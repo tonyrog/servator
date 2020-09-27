@@ -2,9 +2,10 @@
 
 A service creator based on the state of the running system. The idea is
 to inspect a running system and create start scripts based on what is
-found running.
+found running. Servator can also create applications for use with
+AppImage Mac OS X Applications and Windows applications (see below)
 
-# normal release
+# Normal release
 
 It is so simple to create server scripts this way, example
 
@@ -126,3 +127,42 @@ In 10.11 it is no longer possible to install stuff under /System/Library/LaunchD
 
     sudo cp /etc/erlang/<app>/<rel>/org.erlang.<app>.plist /Library/LaunchDaemons/
     sudo launchctl load -w /Library/LaunchDaemons/org.erlang.<app>.plist
+
+# AppImage
+
+	erl -noshell -s foo -s servator make_appimage foo -s erlang halt
+	
+This will create a directory called foo.AppDir with a AppRun file in it.
+Now strip the erlang binaries and run appimage tool.
+
+	strip foo.AppDir/bin/beam.smp
+	strip foo.AppDir/bin/epmd
+	strip foo.AppDir/bin/erlc
+	strip foo.AppDir/bin/erl_child_setup
+	strip foo.AppDir/bin/erlexec
+	strip foo.AppDir/bin/escript
+	strip foo.AppDir/bin/heart
+	strip foo.AppDir/bin/inet_gethost
+	appimagetool -n foo.AppDir
+
+This should produce an executable that can be run.
+
+# Max OS X Application
+
+	erl -noshell -s foo -s servator make_osxapp foo -s erlang halt
+	
+	mkdir -p tmpdist
+	rm -rf tmpdist/Foo.app
+	mv Foo.app tmpdist/
+	(cd tmpdist/; ../../servator/priv/make_icns ../priv/foo.png)
+	rm -rf tmpdist/AppIcon.iconset
+	mv tmpdist/AppIcon.icns tmpdist/foo.app/Contents/Resources/
+	hdiutil create tmp.dmg -ov -volname "Foo" -fs HFS+ -srcfolder "./tmpdist/"
+	hdiutil convert -format UDZO -o Foo.dmg tmp.dmg
+	rm tmp.dmg
+
+# Windows application
+
+
+	erl -noshell -s foo -s servator make_win32app foo -s erlang halt
+
