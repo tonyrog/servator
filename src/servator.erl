@@ -39,7 +39,10 @@
 -export([make_args/3]).
 -export([get_config_filenames/0]).
 
+-compile(export_all).
 -include_lib("kernel/include/file.hrl").
+
+
 
 -define(Q, $").
 -define(BSLASH, $\\).
@@ -1328,6 +1331,15 @@ extract_([<<"y(0)", TermData/binary>>|_Lines]) ->
     parse_state(TermData);
 extract_([<<"y(1)", TermData/binary>>|_Lines]) ->
     parse_state(TermData);
+%% OTP 23 
+extract_([<<"0x",Tail/binary>> | Lines]) ->
+    [_Hex, Data] = binary:split(Tail, <<" ">>),
+    try parse_state(Data) of
+	Start -> Start
+    catch
+	error:_ ->
+	    extract_(Lines)
+    end;
 extract_([_Line|Lines]) ->
     extract_(Lines);
 extract_([]) ->
@@ -1338,9 +1350,7 @@ parse_state(Data) ->
     Ts1 = translate_termdata(Ts),
     {ok,[Term]} = erl_parse:parse_exprs(Ts1++[{dot,1}]),
     State = erl_parse:normalise(Term),
-    Start = element(4, State),
-    Start.
-
+    element(4, State).
 
 %% translate scanned pids to placeholders
 %% translate <x.y.z> (as tokens) into dummy 'pid'
