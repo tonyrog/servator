@@ -295,6 +295,8 @@ make_scripts(AppName,Rel) ->
 		     {r,["VSN=",Rel,?NL]},
 		     {r,["VAR=","$PREFIX","/",RootVar,?NL]},
 		     {r,["ETC=","$PREFIX","/",RootEtc,?NL]},
+		     %% fixme? maybe copy all --opt [arg] data?
+		     {r,["OPTS=\"\"",?NL]},
 		     {r,[Home,?NL]},
 		     if Rel =:= "" ->
 			     {r,["ERL=","erl",?NL]};
@@ -439,6 +441,7 @@ make_apprun(AppName,Rel,BuildType) ->
 		     {r,["VSN=",Rel,?NL]},
 		     {r,["VAR=","$PREFIX","/",RootVar,?NL]},
 		     {r,["ETC=","$PREFIX","/",RootEtc,?NL]},
+		     {r,["OPTS=\"\"",?NL]},
 		     {r,[Home,?NL]},
 		     if Rel =:= "" ->
 			     {r,["ERL=","erl",?NL]};
@@ -900,10 +903,12 @@ su_command() ->
 %% -sname x
 %% -name x
 erl_node_arg() ->
-    case string_split(atom_to_list(node()), $@) of
+    Node = atom_to_list(node()),
+    case string_split(Node, $@) of
 	["nonode", "nohost"] -> [];
 	[Name,Host] ->
 	    case string_split(Host, $.) of
+		["localhost"] -> [{"sname",Node}];  %% keep short hostname
 		[_] -> [{"sname",Name}];
 		[_|_] -> [{"name",Name}]
 	    end
@@ -1167,7 +1172,7 @@ format_elems([]) ->
 %% Generate the start command
 shell_start_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
-    Flags0 = erl_config_flags(AppName),
+    Flags0 = "$OPTS " ++ erl_config_flags(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
     Start = erl_args(AppName, start, Flags2++" -detached", Rel),
@@ -1188,7 +1193,7 @@ shell_start_command(AppName,Rel,Home) ->
 %% Generate the interactive command
 shell_interactive_command(AppName,Rel,Home) ->
     User = os:getenv("USER"),
-    Flags0 = erl_config_flags(AppName),
+    Flags0 = "$OPTS " ++ erl_config_flags(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     DefaultDir = "$VAR",
     Start = erl_args(AppName, start, Flags1, Rel),
