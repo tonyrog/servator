@@ -1125,9 +1125,11 @@ emit_args_file(File, Args) ->
 
 format_args(Args) ->
     lists:map(
-      fun({Opt,""}) ->
+      fun ({"s", {eval,Value}}) ->
+	      io_lib:format("-eval \"~s\" ", [Value]);
+	  ({Opt,""}) ->
 	      io_lib:format("-~s ", [Opt]);
-	 ({Opt,Value}) when is_list(Value) ->
+	  ({Opt,Value}) when is_list(Value) ->
 	      try erlang:iolist_size(Value) of
 		  _N ->
 		      io_lib:format("-~s \"~s\" ", [Opt,Value])
@@ -1142,8 +1144,6 @@ format_args(Args) ->
 	      io_lib:format("-~s \"~s\" ", [Opt,Value]);
 	 ({Opt,Value}) when is_integer(Value) ->
 	      io_lib:format("-~s ~w ", [Opt,Value]);
-	 ({"s", {eval,Value}}) ->
-	      io_lib:format("-eval ~s", [Value]);
 	 ({env,Env,Value}) when is_integer(Value) ->
 	      io_lib:format("-env ~s ~w ", [Env,Value]);
 		({env,Env,Value}) when is_list(Value) ->
