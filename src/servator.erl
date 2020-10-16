@@ -1142,6 +1142,8 @@ format_args(Args) ->
 	      io_lib:format("-~s \"~s\" ", [Opt,Value]);
 	 ({Opt,Value}) when is_integer(Value) ->
 	      io_lib:format("-~s ~w ", [Opt,Value]);
+	 ({"s", {eval,Value}}) ->
+	      io_lib:format("-eval ~s", [Value]);
 	 ({env,Env,Value}) when is_integer(Value) ->
 	      io_lib:format("-env ~s ~w ", [Env,Value]);
 		({env,Env,Value}) when is_list(Value) ->
