@@ -1,7 +1,8 @@
 {application, servator,
  [
-  {description, "Create erlang server"},
+  {description, "Create erlang release"},
   {vsn, git},
+  {modules, ["@@MODULES@@"]},
   {registered, []},
   {applications, [
                   kernel,
