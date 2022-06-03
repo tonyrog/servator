@@ -1,0 +1,12 @@
+#!/bin/sh -x
+#
+#  create desktop icons file from png
+#
+ICONFILE=$1
+APPNAME=`basename $ICONFILE .png`
+
+for scale in 16x16 24x24 32x32 48x48 64x64 96x96 128x128 256x256
+do
+    mkdir -p desktop_icons/hicolor/$scale/apps
+    convert -scale "$scale" $ICONFILE desktop_icons/hicolor/$scale/apps/$APPNAME.png
+done
