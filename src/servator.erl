@@ -173,6 +173,7 @@ make(AppName0,Rel0,BuildType) ->
        true ->
 	    make_osx_plist(AppName,Rel),
 	    make_init_d(AppName,Rel),
+	    make_systemd(AppName,Rel),
 	    ok = make_installation_script(AppName,Rel)
     end,
     case make_cookie_file(AppName,Rel) of
@@ -292,6 +293,13 @@ make_scripts(AppName,Rel) ->
 		     {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
 		     {r,["    PREFIX=\"\"",?NL]},
 		     {r,["fi",?NL]},
+
+		     {r,["if [ \"$SYSTEMD\" = \"1\" ]; then",?NL]},
+		     {r,["    DETACHED=\"-noinput\"",?NL]},
+		     {r,["else",?NL]},
+		     {r,["    DETACHED=\"-detached\"",?NL]},
+		     {r,["fi",?NL]},
+
 		     {r,["VSN=",Rel,?NL]},
 		     {r,["VAR=","$PREFIX","/",RootVar,?NL]},
 		     {r,["ETC=","$PREFIX","/",RootEtc,?NL]},
@@ -315,8 +323,8 @@ make_scripts(AppName,Rel) ->
 %% AppImage structure:
 %% AppRun           -- executable
 %% <app>.desktop    -- desktop file
-%% <app>.png        -- hmm???
-%% usr/share/icons/hicolor/<app>.png  -- hmm2??
+%% <app>.png        -- used later by makefile to create various sizes
+%% usr/share/icons/hicolor/<app>.png  -- maybe for installer?
 %% usr/share/metainfo/<app>.appdata.xml
 %% .DirIcon -> usr/share/icons/hicolor/<app>.png  (symlink)
 %% bin/              -- erlang vm binaries
@@ -882,6 +890,43 @@ init_d(AppName) ->
       {r, ["exit 0"]}
      ]}.
 
+make_systemd(AppName,Rel) ->
+    Systemd = filename:join([installation_root_dir(AppName,Rel),"etc","systemd", "system"]),
+    ok = make_dir(Systemd),
+    Script1 = systemd_config(to_string(AppName)),
+    Script2 = nl(Script1),
+    Script3 = flat(Script2),
+    Filename = filename:join([Systemd, to_string(AppName)++".service"]),
+    ok = file:write_file(Filename, list_to_binary(Script3)),
+    %% ok = make_executable(Filename),
+    ?dbg("wrote file: ~s\n", [Filename]),
+    ok.
+
+systemd_config(AppName) ->
+    {script,
+     [
+      {r, ["[Unit]"]},
+      {r, ["Description=",AppName," service"]},
+      {r, ["After=","network.target"]},
+      {r, ["StartLimitIntervalSec=","0"]},
+      {r, [""]},
+      {r, ["[Service]"]},
+      {r, ["Type=","simple"]},
+      {r, ["WorkingDirectory=","/etc/erlang/",AppName]},
+      {r, ["ExecStart=","/etc/erlang/",AppName,"/",AppName,".run"," start"]},
+      {r, ["ExecStop=","/etc/erlang/",AppName,"/",AppName,".run"," stop"]},
+      {r, ["Restart=","always"]},
+      {r, ["StadardOutput=","syslog"]},
+      {r, ["StadardError=","syslog"]},
+      {r, ["SyslogIdentifier=",AppName]},
+      {r, ["User=","UID"]},
+      {r, ["Group=","GID"]},
+      {r, ["Environment=","SYSTEMD=1"]},
+      {r, [""]},
+      {r, ["[Install]"]},
+      {r, ["WantedBy=","multi-user.target"]}
+     ]}.
+
 make_executable(File) ->
     case file:read_file_info(File) of
 	{ok, Info} ->
@@ -1175,7 +1220,7 @@ shell_start_command(AppName,Rel,Home) ->
     Flags0 = "$OPTS " ++ erl_config_flags(AppName),
     Flags1 = Flags0 ++ " -pa $VAR/rel/$VSN/lib/PATCHES/ebin",
     Flags2 = Flags1 ++ " " ++ lists:flatten(format_args(erl_heart_arg(AppName))),
-    Start = erl_args(AppName, start, Flags2++" -detached", Rel),
+    Start = erl_args(AppName, start, Flags2++" $DETACHED", Rel),
     DefaultDir = "$VAR",
     {script,
      [
