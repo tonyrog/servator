@@ -1,12 +1,10 @@
-#!/usr/bin/env xdg-open
-
 [Desktop Entry]
 Version=1.0
 Type=Application
 Categories=Utility;
 Terminal=false
-Exec=AppRun
-Comment[sv_SE]=Mall för applikationer
+Exec=APPIMAGE
+Comment[sv_SE]=Applikation
 Name=${APPNAME}
-Comment=Template application
+Comment=Servator application
 Icon=${APP}
