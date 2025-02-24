@@ -39,7 +39,7 @@
 -export([make_args/3]).
 -export([get_config_filenames/0]).
 
-%% -compile(export_all).
+-compile(export_all).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -1061,6 +1061,18 @@ erl_start_arg(AppName) ->
 	    io:format("new started args = ~w\n", [Args]),
 	    [{"s", As} || As <- Args ]
     end.
+
+%% 27.x use apply
+rewrite_started_args([{apply,servator,make_release,Args=[servator|_]}|As]) ->
+    [[servator,make_release|Args] | rewrite_started_args(As)];
+rewrite_started_args([{apply,servator,_,_}|As]) ->
+    rewrite_started_args(As);
+rewrite_started_args([{apply,erlang,halt,_}|As]) ->
+    rewrite_started_args(As);
+rewrite_started_args([{apply,Mod,start0,Args}|As]) ->
+    [[Mod,start|Args] | rewrite_started_args(As)];
+rewrite_started_args([{apply,Mod,Fun,Args}|As]) ->
+    [[Mod,Fun|Args] | rewrite_started_args(As)];
 
 rewrite_started_args([S=[servator,make_release,servator|_]|As]) ->
     %% make release of servator it self...
