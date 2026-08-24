@@ -342,6 +342,7 @@ make_appimage_AppRun(AppName,Rel) ->
 		   ""
 	   end,
     io:format("StartArgs = ~p\n", [StartArgs]),
+    UserConfig = "$HOME/"++"."++AppName ++ ".config",
     Script =
 	flat({script,
 	      [{r, ["#!/bin/sh\n"]},
@@ -350,9 +351,17 @@ make_appimage_AppRun(AppName,Rel) ->
 	       {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
 	       {r,["    PREFIX=\"\"",?NL]},
 	       {r,["fi",?NL]},
+	       %% create user override config file if needed
+	       {r,["if [ ! -f ",UserConfig," ]; then",?NL]},
+	       {r,[" echo \"%% -*- erlang -*-\" > ", UserConfig," ;",?NL]},
+	       {r,[" echo \"%% user config\" >> ", UserConfig," ;",?NL]},
+	       {r,[" echo \"[\" >> ", UserConfig," ;",?NL]},
+	       {r,[" echo \"].\" >> ", UserConfig," ;",?NL]},
+	       {r,["fi",?NL]},
 	       %% {r,["export HOME=$PREFIX",?NL]},
 	       {r,["unset ERL_LIBS",?NL]},
-	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), " ",
+	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), 
+		    " -config ", UserConfig, " ",
 		    format_args(StartArgs),
 		    " -extra \"$@\"", Pipe, ?NL]}
 	      ]}),
