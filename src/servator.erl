@@ -343,6 +343,29 @@ make_appimage_AppRun(AppName,Rel) ->
 	   end,
     io:format("StartArgs = ~p\n", [StartArgs]),
     UserConfig = "$HOME/"++"."++AppName ++ ".config",
+    %% When the application depend on servator the user config
+    %% $HOME/.<app>/user.config is merged section by section by
+    %% servator_rt:load_user_config/1 (-config would replace whole apps)
+    UseRt = lists:member(servator,
+			 depend_user_applications(list_to_atom(AppName))),
+    UserConfigScript =
+	if UseRt ->
+		[];
+	   true ->
+		%% create user override config file if needed
+		[{r,["if [ ! -f ",UserConfig," ]; then",?NL]},
+		 {r,[" echo \"%% -*- erlang -*-\" > ", UserConfig," ;",?NL]},
+		 {r,[" echo \"%% user config\" >> ", UserConfig," ;",?NL]},
+		 {r,[" echo \"[\" >> ", UserConfig," ;",?NL]},
+		 {r,[" echo \"].\" >> ", UserConfig," ;",?NL]},
+		 {r,["fi",?NL]}]
+	end,
+    UserConfigArgs =
+	if UseRt ->
+		" -s servator_rt load_user_config "++AppName++" ";
+	   true ->
+		" -config "++UserConfig++" "
+	end,
     Script =
 	flat({script,
 	      [{r, ["#!/bin/sh\n"]},
@@ -350,18 +373,12 @@ make_appimage_AppRun(AppName,Rel) ->
 	       {r,["PREFIX=$THISDIR",?NL]},
 	       {r,["if [ \"$PREFIX\" = \"/\" ]; then",?NL]},
 	       {r,["    PREFIX=\"\"",?NL]},
-	       {r,["fi",?NL]},
-	       %% create user override config file if needed
-	       {r,["if [ ! -f ",UserConfig," ]; then",?NL]},
-	       {r,[" echo \"%% -*- erlang -*-\" > ", UserConfig," ;",?NL]},
-	       {r,[" echo \"%% user config\" >> ", UserConfig," ;",?NL]},
-	       {r,[" echo \"[\" >> ", UserConfig," ;",?NL]},
-	       {r,[" echo \"].\" >> ", UserConfig," ;",?NL]},
-	       {r,["fi",?NL]},
-	       %% {r,["export HOME=$PREFIX",?NL]},
+	       {r,["fi",?NL]}] ++
+		  UserConfigScript ++
+	      [%% {r,["export HOME=$PREFIX",?NL]},
 	       {r,["unset ERL_LIBS",?NL]},
 	       {r, ["$PREFIX/bin/erl ", erl_config_flags(AppName), 
-		    " -config ", UserConfig, " ",
+		    UserConfigArgs,
 		    format_args(StartArgs),
 		    " -extra \"$@\"", Pipe, ?NL]}
 	      ]}),
